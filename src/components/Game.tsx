@@ -23,6 +23,8 @@ const ENEMY_MAX_HP = 40;
 const ATTACK_DAMAGE = 25;
 const ATTACK_RANGE = 3.2;
 const ENEMY_DAMAGE = 8;
+const AGRO_RANGE = 8;
+const MELEE_RANGE = 1.6;
 
 export default function Game() {
   const mountRef = useRef<HTMLDivElement>(null);
