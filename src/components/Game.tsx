@@ -222,6 +222,9 @@ export default function Game() {
         hitCooldown: 0,
         respawnIn: 0,
         spawn: p.clone(),
+        state: "idle",
+        patrolDir: Math.random() * Math.PI * 2,
+        patrolTimer: Math.random() * 2,
       });
     }
     for (let i = 0; i < 8; i++) spawnEnemy();
