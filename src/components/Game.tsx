@@ -125,7 +125,7 @@ function updateCharacterAnimation(
 
   // Spine / chest — breathing + shoulder counter-rotation
   setBone(vrm, "spine",
-    0.04 + breath + 0.02 * walk,
+    0.04 + breath + 0.02 * walk + (animState.smoothed.get("__attackTorso__")?.x ?? 0),
     -legCycle * 0.10 * walk,
     idleSway * 0.4
   );
