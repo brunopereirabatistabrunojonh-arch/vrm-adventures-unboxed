@@ -65,6 +65,32 @@ function updateCharacterAnimation(
 ) {
   const { speed, attackTimer, dead } = opts;
 
+  // --- Attack pose progression (windup → strike → recovery) ---
+  const attackDur = 0.35;
+  const ap = attackTimer > 0 ? 1 - Math.min(1, attackTimer / attackDur) : -1;
+  let attackArmX = 0;
+  let attackElbow = 0;
+  let attackTorso = 0;
+  if (ap >= 0) {
+    if (ap < 0.35) {
+      const k = ap / 0.35;
+      attackArmX = 0.9 * k;
+      attackElbow = 1.4 * k;
+      attackTorso = -0.05 * k;
+    } else if (ap < 0.7) {
+      const k = (ap - 0.35) / 0.35;
+      attackArmX = lerp(0.9, -1.8, k);
+      attackElbow = lerp(1.4, 0.2, k);
+      attackTorso = lerp(-0.05, 0.18, k);
+    } else {
+      const k = (ap - 0.7) / 0.3;
+      attackArmX = lerp(-1.8, 0, k);
+      attackElbow = lerp(0.2, 0, k);
+      attackTorso = lerp(0.18, 0, k);
+    }
+  }
+  const attackMix = ap >= 0 ? 1 : 0;
+
   // Locomotion blending
   const walkThreshold = 0.4;
   const runThreshold = 6.5;
@@ -125,7 +151,7 @@ function updateCharacterAnimation(
 
   // Spine / chest — breathing + shoulder counter-rotation
   setBone(vrm, "spine",
-    0.04 + breath + 0.02 * walk + (animState.smoothed.get("__attackTorso__")?.x ?? 0),
+    0.04 + breath + 0.02 * walk + attackTorso,
     -legCycle * 0.10 * walk,
     idleSway * 0.4
   );
@@ -155,31 +181,6 @@ function updateCharacterAnimation(
   // --- Arms ---
   // Rest pose: arms down along body
   const armRest = 1.25;
-  // --- Attack swing (windup → strike → recovery). attackTimer starts at 0.35 ---
-  const attackDur = 0.35;
-  const ap = attackTimer > 0 ? 1 - Math.min(1, attackTimer / attackDur) : -1;
-  let attackArmX = 0;
-  let attackElbow = 0;
-  let attackTorso = 0;
-  if (ap >= 0) {
-    if (ap < 0.35) {
-      const k = ap / 0.35;
-      attackArmX = 0.9 * k;
-      attackElbow = 1.4 * k;
-      attackTorso = -0.05 * k;
-    } else if (ap < 0.7) {
-      const k = (ap - 0.35) / 0.35;
-      attackArmX = lerp(0.9, -1.8, k);
-      attackElbow = lerp(1.4, 0.2, k);
-      attackTorso = lerp(-0.05, 0.18, k);
-    } else {
-      const k = (ap - 0.7) / 0.3;
-      attackArmX = lerp(-1.8, 0, k);
-      attackElbow = lerp(0.2, 0, k);
-      attackTorso = lerp(0.18, 0, k);
-    }
-  }
-  const attackMix = ap >= 0 ? 1 : 0;
   // Arms swing OPPOSITE to same-side leg (right arm forward when right leg back).
   // Suppress walk swing on the attacking (right) arm during attack.
   const rArmSwing = -armCycle * armSwing * (1 - attackMix);
