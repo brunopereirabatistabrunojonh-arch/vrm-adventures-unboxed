@@ -33,6 +33,16 @@ export default function Game() {
   const [score, setScore] = useState(0);
   const [dead, setDead] = useState(false);
 
+  // Mobile input bridges (read by the game loop)
+  const moveRef = useRef({ x: 0, y: 0 }); // joystick vector, -1..1, y forward
+  const runRef = useRef(false);
+  const jumpRef = useRef(false); // edge-triggered
+  const attackRef = useRef(false); // edge-triggered
+  const lookDeltaRef = useRef({ x: 0, y: 0 }); // accumulated touch look delta
+  const isTouch =
+    typeof window !== "undefined" &&
+    ("ontouchstart" in window || (navigator as any).maxTouchPoints > 0);
+
   useEffect(() => {
     const mount = mountRef.current!;
     const scene = new THREE.Scene();
@@ -251,12 +261,42 @@ export default function Game() {
       pitch = Math.max(-1.0, Math.min(0.6, pitch));
     };
     const onClick = () => {
+      if (isTouch) return;
       if (document.pointerLockElement !== renderer.domElement) {
         renderer.domElement.requestPointerLock();
       }
     };
     renderer.domElement.addEventListener("click", onClick);
     window.addEventListener("mousemove", onMouseMove);
+
+    // Touch camera look — drag anywhere on the canvas
+    const activeTouches = new Map<number, { x: number; y: number }>();
+    const onTouchStart = (e: TouchEvent) => {
+      for (const t of Array.from(e.changedTouches)) {
+        activeTouches.set(t.identifier, { x: t.clientX, y: t.clientY });
+      }
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      for (const t of Array.from(e.changedTouches)) {
+        const prev = activeTouches.get(t.identifier);
+        if (!prev) continue;
+        const dx = t.clientX - prev.x;
+        const dy = t.clientY - prev.y;
+        lookDeltaRef.current.x += dx;
+        lookDeltaRef.current.y += dy;
+        activeTouches.set(t.identifier, { x: t.clientX, y: t.clientY });
+      }
+      e.preventDefault();
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      for (const t of Array.from(e.changedTouches)) {
+        activeTouches.delete(t.identifier);
+      }
+    };
+    renderer.domElement.addEventListener("touchstart", onTouchStart, { passive: true });
+    renderer.domElement.addEventListener("touchmove", onTouchMove, { passive: false });
+    renderer.domElement.addEventListener("touchend", onTouchEnd, { passive: true });
+    renderer.domElement.addEventListener("touchcancel", onTouchEnd, { passive: true });
 
     // Attack
     let attackTimer = 0;
@@ -343,6 +383,15 @@ export default function Game() {
       raf = requestAnimationFrame(animate);
       const dt = Math.min(clock.getDelta(), 0.05);
 
+      // Apply touch look
+      if (lookDeltaRef.current.x !== 0 || lookDeltaRef.current.y !== 0) {
+        yaw -= lookDeltaRef.current.x * 0.006;
+        pitch -= lookDeltaRef.current.y * 0.006;
+        pitch = Math.max(-1.0, Math.min(0.6, pitch));
+        lookDeltaRef.current.x = 0;
+        lookDeltaRef.current.y = 0;
+      }
+
       // Camera-relative input
       const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
       const right = new THREE.Vector3(Math.sin(yaw + Math.PI / 2), 0, Math.cos(yaw + Math.PI / 2));
@@ -352,8 +401,15 @@ export default function Game() {
         if (keys["KeyS"] || keys["ArrowDown"]) move.sub(forward);
         if (keys["KeyA"] || keys["ArrowLeft"]) move.sub(right);
         if (keys["KeyD"] || keys["ArrowRight"]) move.add(right);
+        // Joystick (mobile)
+        const jx = moveRef.current.x;
+        const jy = moveRef.current.y;
+        if (jx * jx + jy * jy > 0.01) {
+          move.add(forward.clone().multiplyScalar(jy));
+          move.add(right.clone().multiplyScalar(jx));
+        }
       }
-      const running = keys["ShiftLeft"] || keys["ShiftRight"];
+      const running = keys["ShiftLeft"] || keys["ShiftRight"] || runRef.current;
       const speed = running ? 9 : 5;
       if (move.lengthSq() > 0) {
         move.normalize().multiplyScalar(speed);
@@ -370,9 +426,14 @@ export default function Game() {
       playerState.vel.z = move.z;
 
       // Jump
-      if ((keys["Space"]) && playerState.onGround && !playerState.dead) {
+      if ((keys["Space"] || jumpRef.current) && playerState.onGround && !playerState.dead) {
         playerState.vel.y = 8;
         playerState.onGround = false;
+      }
+      jumpRef.current = false;
+      if (attackRef.current) {
+        attackRef.current = false;
+        tryAttack();
       }
       playerState.vel.y -= 22 * dt;
 
@@ -518,6 +579,10 @@ export default function Game() {
       window.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("resize", onResize);
       renderer.domElement.removeEventListener("click", onClick);
+      renderer.domElement.removeEventListener("touchstart", onTouchStart);
+      renderer.domElement.removeEventListener("touchmove", onTouchMove);
+      renderer.domElement.removeEventListener("touchend", onTouchEnd);
+      renderer.domElement.removeEventListener("touchcancel", onTouchEnd);
       renderer.dispose();
       if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
     };
@@ -557,7 +622,7 @@ export default function Game() {
         </div>
       </div>
 
-      <div className="pointer-events-none absolute right-4 top-4 z-10 max-w-xs rounded-md bg-black/50 p-3 text-xs text-white backdrop-blur">
+      <div className="pointer-events-none absolute right-4 top-4 z-10 hidden max-w-xs rounded-md bg-black/50 p-3 text-xs text-white backdrop-blur md:block">
         <div className="mb-1 font-bold">Controls</div>
         <div>Click to lock mouse</div>
         <div>WASD — Move</div>
@@ -567,6 +632,14 @@ export default function Game() {
         <div>Mouse — Camera</div>
         <div>Esc — Release mouse</div>
       </div>
+
+      {/* Mobile controls */}
+      <MobileControls
+        moveRef={moveRef}
+        runRef={runRef}
+        jumpRef={jumpRef}
+        attackRef={attackRef}
+      />
 
       {dead && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-red-900/40">
@@ -579,6 +652,153 @@ export default function Game() {
 
       {/* Crosshair */}
       <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/80" />
+    </div>
+  );
+}
+
+function MobileControls({
+  moveRef,
+  runRef,
+  jumpRef,
+  attackRef,
+}: {
+  moveRef: React.MutableRefObject<{ x: number; y: number }>;
+  runRef: React.MutableRefObject<boolean>;
+  jumpRef: React.MutableRefObject<boolean>;
+  attackRef: React.MutableRefObject<boolean>;
+}) {
+  const padRef = useRef<HTMLDivElement>(null);
+  const [stick, setStick] = useState({ x: 0, y: 0, active: false });
+  const touchIdRef = useRef<number | null>(null);
+  const [runActive, setRunActive] = useState(false);
+
+  const startStick = (clientX: number, clientY: number) => {
+    const el = padRef.current;
+    if (!el) return;
+    updateStick(clientX, clientY);
+  };
+  const updateStick = (clientX: number, clientY: number) => {
+    const el = padRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const maxR = r.width / 2;
+    let dx = clientX - cx;
+    let dy = clientY - cy;
+    const d = Math.hypot(dx, dy);
+    if (d > maxR) {
+      dx = (dx / d) * maxR;
+      dy = (dy / d) * maxR;
+    }
+    const nx = dx / maxR;
+    const ny = dy / maxR;
+    moveRef.current = { x: nx, y: -ny }; // up = forward
+    setStick({ x: dx, y: dy, active: true });
+  };
+  const endStick = () => {
+    moveRef.current = { x: 0, y: 0 };
+    touchIdRef.current = null;
+    setStick({ x: 0, y: 0, active: false });
+  };
+
+  const onPadTouchStart = (e: React.TouchEvent) => {
+    const t = e.changedTouches[0];
+    touchIdRef.current = t.identifier;
+    startStick(t.clientX, t.clientY);
+  };
+  const onPadTouchMove = (e: React.TouchEvent) => {
+    for (const t of Array.from(e.changedTouches)) {
+      if (t.identifier === touchIdRef.current) {
+        updateStick(t.clientX, t.clientY);
+        e.preventDefault();
+        break;
+      }
+    }
+  };
+  const onPadTouchEnd = (e: React.TouchEvent) => {
+    for (const t of Array.from(e.changedTouches)) {
+      if (t.identifier === touchIdRef.current) {
+        endStick();
+        break;
+      }
+    }
+  };
+
+  const btnBase =
+    "select-none touch-none flex items-center justify-center rounded-full font-bold text-white shadow-lg active:scale-95 transition-transform";
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20 md:hidden">
+      {/* Joystick */}
+      <div
+        ref={padRef}
+        onTouchStart={onPadTouchStart}
+        onTouchMove={onPadTouchMove}
+        onTouchEnd={onPadTouchEnd}
+        onTouchCancel={onPadTouchEnd}
+        className="pointer-events-auto absolute bottom-6 left-6 h-36 w-36 touch-none rounded-full border-2 border-white/40 bg-white/10 backdrop-blur"
+      >
+        <div
+          className="absolute h-16 w-16 rounded-full bg-white/70 shadow"
+          style={{
+            left: "50%",
+            top: "50%",
+            transform: `translate(calc(-50% + ${stick.x}px), calc(-50% + ${stick.y}px))`,
+            transition: stick.active ? "none" : "transform 0.15s",
+          }}
+        />
+      </div>
+
+      {/* Action buttons */}
+      <div className="pointer-events-auto absolute bottom-8 right-6 flex flex-col items-end gap-3">
+        <button
+          className={`${btnBase} h-20 w-20 bg-red-500/80 text-lg`}
+          onTouchStart={(e) => {
+            e.preventDefault();
+            attackRef.current = true;
+          }}
+        >
+          ATK
+        </button>
+        <div className="flex gap-3">
+          <button
+            className={`${btnBase} h-16 w-16 text-sm ${
+              runActive ? "bg-yellow-400/90 text-black" : "bg-yellow-500/80"
+            }`}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              runRef.current = true;
+              setRunActive(true);
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              runRef.current = false;
+              setRunActive(false);
+            }}
+            onTouchCancel={() => {
+              runRef.current = false;
+              setRunActive(false);
+            }}
+          >
+            RUN
+          </button>
+          <button
+            className={`${btnBase} h-16 w-16 bg-blue-500/80 text-sm`}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              jumpRef.current = true;
+            }}
+          >
+            JUMP
+          </button>
+        </div>
+      </div>
+
+      {/* Mobile hint */}
+      <div className="pointer-events-none absolute right-2 top-2 max-w-[60%] rounded bg-black/50 p-2 text-[10px] leading-tight text-white backdrop-blur">
+        Arraste a tela: girar câmera • Joystick: mover • RUN/JUMP/ATK
+      </div>
     </div>
   );
 }
