@@ -1,29 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
+import Game from "@/components/Game";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Your App" },
-      { name: "description", content: "Replace this with a one-sentence description of your app." },
-      { property: "og:title", content: "Your App" },
-      { property: "og:description", content: "Replace this with a one-sentence description of your app." },
+      { title: "VRM Hero — 3D Browser Game" },
+      { name: "description", content: "Explore an open 3D world, fight enemies and survive as your VRM hero." },
+      { property: "og:title", content: "VRM Hero — 3D Browser Game" },
+      { property: "og:description", content: "Explore an open 3D world, fight enemies and survive as your VRM hero." },
     ],
   }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
 function Index() {
-  return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
-  );
+  return <Game />;
 }
