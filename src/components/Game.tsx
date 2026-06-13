@@ -65,6 +65,32 @@ function updateCharacterAnimation(
 ) {
   const { speed, attackTimer, dead } = opts;
 
+  // --- Attack pose progression (windup → strike → recovery) ---
+  const attackDur = 0.35;
+  const ap = attackTimer > 0 ? 1 - Math.min(1, attackTimer / attackDur) : -1;
+  let attackArmX = 0;
+  let attackElbow = 0;
+  let attackTorso = 0;
+  if (ap >= 0) {
+    if (ap < 0.35) {
+      const k = ap / 0.35;
+      attackArmX = 0.9 * k;
+      attackElbow = 1.4 * k;
+      attackTorso = -0.05 * k;
+    } else if (ap < 0.7) {
+      const k = (ap - 0.35) / 0.35;
+      attackArmX = lerp(0.9, -1.8, k);
+      attackElbow = lerp(1.4, 0.2, k);
+      attackTorso = lerp(-0.05, 0.18, k);
+    } else {
+      const k = (ap - 0.7) / 0.3;
+      attackArmX = lerp(-1.8, 0, k);
+      attackElbow = lerp(0.2, 0, k);
+      attackTorso = lerp(0.18, 0, k);
+    }
+  }
+  const attackMix = ap >= 0 ? 1 : 0;
+
   // Locomotion blending
   const walkThreshold = 0.4;
   const runThreshold = 6.5;
@@ -125,7 +151,7 @@ function updateCharacterAnimation(
 
   // Spine / chest — breathing + shoulder counter-rotation
   setBone(vrm, "spine",
-    0.04 + breath + 0.02 * walk,
+    0.04 + breath + 0.02 * walk + attackTorso,
     -legCycle * 0.10 * walk,
     idleSway * 0.4
   );
@@ -155,22 +181,19 @@ function updateCharacterAnimation(
   // --- Arms ---
   // Rest pose: arms down along body
   const armRest = 1.25;
-  const attackPose = attackTimer > 0 ? -1.5 : 0;
-  // Constant slight elbow bend; add gentle extra bend on forward swing only.
-  // Arms swing OPPOSITE to legs of the same side, i.e. armCycle for right arm is
-  // negative legCycle (right arm forward when right leg back).
-  const rArmSwing = -armCycle * armSwing;
+  // Arms swing OPPOSITE to same-side leg (right arm forward when right leg back).
+  // Suppress walk swing on the attacking (right) arm during attack.
+  const rArmSwing = -armCycle * armSwing * (1 - attackMix);
   const lArmSwing = armCycle * armSwing;
 
   // Right arm
   setBone(vrm, "rightUpperArm",
-    rArmSwing + attackPose,
+    rArmSwing + attackArmX,
     rArmSwing * 0.15,                          // slight inward/outward twist
     -armRest + idleArm * 0.4
   );
   setBone(vrm, "rightLowerArm",
-    // base soft bend + smooth extra bend on forward swing (no Math.max kink)
-    -0.35 - (0.18 + 0.18 * run) * Math.max(0, rArmSwing) - (attackTimer > 0 ? 0.6 : 0),
+    -0.35 - (0.18 + 0.18 * run) * Math.max(0, rArmSwing) - attackElbow,
     0,
     -0.12
   );
@@ -210,7 +233,7 @@ function updateCharacterAnimation(
   setBone(vrm, "rightUpperLeg",
     rLegSwing,
     0,
-    -hipSwayLateral * 0.3                            // pelvis tilt compensation
+    0
   );
   setBone(vrm, "rightLowerLeg",
     kneeBase + rSwingPhase * rSwingPhase * (1.0 + 0.4 * run) * walk,
@@ -226,7 +249,7 @@ function updateCharacterAnimation(
   setBone(vrm, "leftUpperLeg",
     lLegSwing,
     0,
-    -hipSwayLateral * 0.3
+    0
   );
   setBone(vrm, "leftLowerLeg",
     kneeBase + lSwingPhase * lSwingPhase * (1.0 + 0.4 * run) * walk,
