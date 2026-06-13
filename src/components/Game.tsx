@@ -12,6 +12,9 @@ type Enemy = {
   hitCooldown: number;
   respawnIn: number;
   spawn: THREE.Vector3;
+  state: "idle" | "chase";
+  patrolDir: number;
+  patrolTimer: number;
 };
 
 const WORLD_SIZE = 200;
@@ -20,6 +23,8 @@ const ENEMY_MAX_HP = 40;
 const ATTACK_DAMAGE = 25;
 const ATTACK_RANGE = 3.2;
 const ENEMY_DAMAGE = 8;
+const AGRO_RANGE = 8;
+const MELEE_RANGE = 1.6;
 
 export default function Game() {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -217,6 +222,9 @@ export default function Game() {
         hitCooldown: 0,
         respawnIn: 0,
         spawn: p.clone(),
+        state: "idle",
+        patrolDir: Math.random() * Math.PI * 2,
+        patrolTimer: Math.random() * 2,
       });
     }
     for (let i = 0; i < 8; i++) spawnEnemy();
@@ -397,6 +405,7 @@ export default function Game() {
             const r = rng(20, WORLD_SIZE / 2 - 10);
             en.mesh.position.set(Math.cos(angle) * r, 1.1, Math.sin(angle) * r);
             (en.mesh.material as THREE.MeshStandardMaterial).color.set(0xc83232);
+            en.state = "idle";
           }
           return;
         }
@@ -406,19 +415,45 @@ export default function Game() {
           if (en.hitCooldown <= 0)
             (en.mesh.material as THREE.MeshStandardMaterial).color.set(0xc83232);
         }
-        // Chase
+
         const to = new THREE.Vector3().subVectors(player.position, en.mesh.position);
         to.y = 0;
         const dist = to.length();
-        if (dist > 0.001 && !playerState.dead) {
+
+        // State machine
+        if (!playerState.dead && dist <= AGRO_RANGE) {
+          en.state = "chase";
+        } else if (dist > AGRO_RANGE + 2) {
+          en.state = "idle";
+        }
+
+        if (en.state === "chase" && dist > 0.001 && !playerState.dead) {
           to.normalize();
           const espeed = 3.2;
           en.mesh.position.x += to.x * espeed * dt;
           en.mesh.position.z += to.z * espeed * dt;
           en.mesh.lookAt(player.position.x, en.mesh.position.y, player.position.z);
+        } else if (en.state === "idle") {
+          // Light patrol
+          en.patrolTimer -= dt;
+          if (en.patrolTimer <= 0) {
+            en.patrolDir = Math.random() * Math.PI * 2;
+            en.patrolTimer = 2 + Math.random() * 2;
+          }
+          const pspeed = 1.2;
+          en.mesh.position.x += Math.cos(en.patrolDir) * pspeed * dt;
+          en.mesh.position.z += Math.sin(en.patrolDir) * pspeed * dt;
+          en.mesh.rotation.y = en.patrolDir + Math.PI;
+          const lim = WORLD_SIZE / 2 - 2;
+          if (en.mesh.position.x < -lim || en.mesh.position.x > lim || en.mesh.position.z < -lim || en.mesh.position.z > lim) {
+            en.patrolDir += Math.PI;
+            en.mesh.position.x = Math.max(-lim, Math.min(lim, en.mesh.position.x));
+            en.mesh.position.z = Math.max(-lim, Math.min(lim, en.mesh.position.z));
+          }
         }
-        // Attack player
-        if (dist < 1.6 && playerState.damageCooldown <= 0 && !playerState.dead) {
+
+        // Melee attack only when close
+        if (en.state === "chase" && dist < MELEE_RANGE && playerState.damageCooldown <= 0 && !playerState.dead) {
           playerState.hp -= ENEMY_DAMAGE;
           playerState.damageCooldown = 0.8;
           setHp(Math.max(0, playerState.hp));
