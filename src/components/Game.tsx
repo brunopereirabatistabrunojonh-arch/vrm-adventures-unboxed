@@ -26,6 +26,190 @@ const ENEMY_DAMAGE = 8;
 const AGRO_RANGE = 8;
 const MELEE_RANGE = 1.6;
 
+// ---- Procedural VRM animation ----
+const animState = {
+  t: 0,
+  walkBlend: 0, // 0..1
+  runBlend: 0,  // 0..1
+  // smoothed bone rotations for soft transitions
+  smoothed: new Map<string, { x: number; y: number; z: number }>(),
+};
+
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t;
+}
+
+function setBone(
+  vrm: VRM,
+  name: Parameters<NonNullable<VRM["humanoid"]>["getNormalizedBoneNode"]>[0],
+  x: number,
+  y: number,
+  z: number,
+  smooth = 0.25
+) {
+  const node = vrm.humanoid?.getNormalizedBoneNode(name);
+  if (!node) return;
+  const key = name as string;
+  const prev = animState.smoothed.get(key) ?? { x: 0, y: 0, z: 0 };
+  const nx = lerp(prev.x, x, smooth);
+  const ny = lerp(prev.y, y, smooth);
+  const nz = lerp(prev.z, z, smooth);
+  animState.smoothed.set(key, { x: nx, y: ny, z: nz });
+  node.rotation.set(nx, ny, nz);
+}
+
+function updateCharacterAnimation(
+  vrm: VRM,
+  dt: number,
+  opts: { speed: number; maxSpeed: number; attackTimer: number; dead: boolean }
+) {
+  const { speed, attackTimer, dead } = opts;
+
+  // Locomotion blending
+  const walkThreshold = 0.4;
+  const runThreshold = 6.5;
+  const isMoving = speed > walkThreshold;
+  const targetWalk = isMoving ? 1 : 0;
+  const targetRun = speed > runThreshold ? Math.min(1, (speed - runThreshold) / 2.5) : 0;
+  animState.walkBlend = lerp(animState.walkBlend, targetWalk, Math.min(1, dt * 8));
+  animState.runBlend = lerp(animState.runBlend, targetRun, Math.min(1, dt * 8));
+
+  // Phase: cycle frequency scales with speed
+  const stepFreq = isMoving ? 2.0 + (speed / opts.maxSpeed) * 3.5 : 0;
+  animState.t += dt * (stepFreq > 0 ? stepFreq : 1.0);
+  const t = animState.t;
+
+  const walk = animState.walkBlend;
+  const run = animState.runBlend;
+  const idle = Math.max(0, 1 - walk);
+
+  // --- Breathing & idle sway ---
+  const breath = Math.sin(t * 0.9) * 0.04 * idle;       // chest up/down
+  const idleSway = Math.sin(t * 0.6) * 0.03 * idle;     // hip sway
+  const idleArm = Math.sin(t * 0.8) * 0.05 * idle;      // arm subtle motion
+  const headBob = Math.sin(t * 0.7) * 0.03 * idle;
+
+  // --- Walk/Run cycle ---
+  const cycle = Math.sin(t);
+  const cycleCos = Math.cos(t);
+  const stepAmp = 0.55 + run * 0.35;       // leg swing
+  const armSwing = 0.7 + run * 0.6;        // arm swing
+  const torsoLean = -(0.08 + run * 0.18) * walk;
+  const vertical = Math.abs(cycleCos) * 0.04 * walk;
+
+  // Hips
+  setBone(vrm, "hips",
+    torsoLean + breath * 0.3,
+    idleSway * 0.5 + cycle * 0.05 * walk,
+    Math.sin(t * 0.5) * 0.02 * idle + cycle * 0.04 * walk
+  );
+
+  // Spine / chest — breathing + counter rotation
+  setBone(vrm, "spine",
+    0.04 + breath,
+    -cycle * 0.12 * walk,
+    idleSway * 0.4
+  );
+  setBone(vrm, "chest",
+    0.02 + breath * 1.2,
+    -cycle * 0.08 * walk,
+    0
+  );
+  setBone(vrm, "upperChest",
+    breath * 0.8,
+    -cycle * 0.05 * walk,
+    0
+  );
+
+  // Neck / head — slight bob
+  setBone(vrm, "neck",
+    -breath * 0.5 + headBob,
+    cycle * 0.05 * walk,
+    0
+  );
+  setBone(vrm, "head",
+    headBob * 0.6,
+    Math.sin(t * 0.3) * 0.04 * idle,
+    0
+  );
+
+  // --- Arms ---
+  // Rest pose: arms down along body (z axis rotates outward in VRM normalized space)
+  const armRest = 1.25;
+  const attackPose = attackTimer > 0 ? -1.5 : 0;
+
+  // Right arm
+  setBone(vrm, "rightUpperArm",
+    cycle * armSwing * walk + attackPose,
+    0,
+    -armRest + idleArm * 0.4
+  );
+  setBone(vrm, "rightLowerArm",
+    -0.25 - Math.max(0, cycle) * 0.4 * walk - (attackTimer > 0 ? 0.6 : 0),
+    0,
+    -0.1
+  );
+  setBone(vrm, "rightHand", 0, 0, 0);
+
+  // Left arm (opposite phase)
+  setBone(vrm, "leftUpperArm",
+    -cycle * armSwing * walk,
+    0,
+    armRest - idleArm * 0.4
+  );
+  setBone(vrm, "leftLowerArm",
+    -0.25 - Math.max(0, -cycle) * 0.4 * walk,
+    0,
+    0.1
+  );
+  setBone(vrm, "leftHand", 0, 0, 0);
+
+  // --- Legs ---
+  setBone(vrm, "rightUpperLeg",
+    -cycle * stepAmp * walk,
+    0,
+    0
+  );
+  setBone(vrm, "rightLowerLeg",
+    Math.max(0, cycle) * 0.9 * walk,
+    0,
+    0
+  );
+  setBone(vrm, "rightFoot",
+    -cycle * 0.2 * walk,
+    0,
+    0
+  );
+
+  setBone(vrm, "leftUpperLeg",
+    cycle * stepAmp * walk,
+    0,
+    0
+  );
+  setBone(vrm, "leftLowerLeg",
+    Math.max(0, -cycle) * 0.9 * walk,
+    0,
+    0
+  );
+  setBone(vrm, "leftFoot",
+    cycle * 0.2 * walk,
+    0,
+    0
+  );
+
+  // Vertical bob on root (gentle)
+  if (vrm.scene) {
+    const base = vrm.scene.userData._baseY ?? vrm.scene.position.y;
+    vrm.scene.userData._baseY = base;
+    vrm.scene.position.y = base + vertical;
+  }
+
+  if (dead) {
+    // Collapse: tilt forward
+    setBone(vrm, "hips", 1.4, 0, 0, 0.15);
+  }
+}
+
 export default function Game() {
   const mountRef = useRef<HTMLDivElement>(null);
   const [hp, setHp] = useState(PLAYER_MAX_HP);
@@ -547,16 +731,12 @@ export default function Game() {
 
       // VRM update
       if (vrm) {
-        // Simple attack pose using arm bones
-        const rArm = vrm.humanoid?.getNormalizedBoneNode("rightUpperArm");
-        const lArm = vrm.humanoid?.getNormalizedBoneNode("leftUpperArm");
-        if (rArm && lArm) {
-          const armRest = 1.2;
-          const attackPose = attackTimer > 0 ? -1.4 : 0;
-          rArm.rotation.z = -armRest;
-          lArm.rotation.z = armRest;
-          rArm.rotation.x = attackPose;
-        }
+        updateCharacterAnimation(vrm, dt, {
+          speed: Math.hypot(playerState.vel.x, playerState.vel.z),
+          maxSpeed: 9,
+          attackTimer,
+          dead: playerState.dead,
+        });
         vrm.update(dt);
       }
 
