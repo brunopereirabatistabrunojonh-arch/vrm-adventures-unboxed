@@ -12,6 +12,9 @@ type Enemy = {
   hitCooldown: number;
   respawnIn: number;
   spawn: THREE.Vector3;
+  state: "idle" | "chase";
+  patrolDir: number;
+  patrolTimer: number;
 };
 
 const WORLD_SIZE = 200;
