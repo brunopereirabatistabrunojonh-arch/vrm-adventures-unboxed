@@ -547,16 +547,12 @@ export default function Game() {
 
       // VRM update
       if (vrm) {
-        // Simple attack pose using arm bones
-        const rArm = vrm.humanoid?.getNormalizedBoneNode("rightUpperArm");
-        const lArm = vrm.humanoid?.getNormalizedBoneNode("leftUpperArm");
-        if (rArm && lArm) {
-          const armRest = 1.2;
-          const attackPose = attackTimer > 0 ? -1.4 : 0;
-          rArm.rotation.z = -armRest;
-          lArm.rotation.z = armRest;
-          rArm.rotation.x = attackPose;
-        }
+        updateCharacterAnimation(vrm, dt, {
+          speed: Math.hypot(playerState.vel.x, playerState.vel.z),
+          maxSpeed: 9,
+          attackTimer,
+          dead: playerState.dead,
+        });
         vrm.update(dt);
       }
 
