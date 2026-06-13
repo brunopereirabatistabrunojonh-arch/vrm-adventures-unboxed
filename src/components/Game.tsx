@@ -147,21 +147,43 @@ export default function Game() {
     loader.load(
       characterAsset.url,
       (gltf) => {
-        const loadedVrm = gltf.userData.vrm as VRM;
-        VRMUtils.removeUnnecessaryVertices(gltf.scene);
-        VRMUtils.combineSkeletons(gltf.scene);
-        loadedVrm.scene.traverse((o) => {
+        const loadedVrm = gltf.userData.vrm as VRM | undefined;
+        console.log("[Game] GLTF loaded", { hasVrm: !!loadedVrm, scene: gltf.scene });
+        const sceneRoot = loadedVrm ? loadedVrm.scene : gltf.scene;
+        try {
+          VRMUtils.removeUnnecessaryVertices(gltf.scene);
+          VRMUtils.combineSkeletons(gltf.scene);
+        } catch (e) {
+          console.warn("[Game] VRMUtils failed", e);
+        }
+        sceneRoot.traverse((o) => {
           o.castShadow = true;
           o.frustumCulled = false;
         });
-        // Face +Z (toward camera-forward in our control scheme we rotate player)
-        loadedVrm.scene.rotation.y = Math.PI;
+        // Compute bounding box to auto-scale & ground the model
+        const box = new THREE.Box3().setFromObject(sceneRoot);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        console.log("[Game] model size", size);
+        const targetHeight = 1.7;
+        if (size.y > 0.01) {
+          const s = targetHeight / size.y;
+          sceneRoot.scale.setScalar(s);
+        }
+        // Re-measure & lift so feet sit on y=0
+        const box2 = new THREE.Box3().setFromObject(sceneRoot);
+        sceneRoot.position.y -= box2.min.y;
+        sceneRoot.rotation.y = Math.PI;
         player.remove(placeholder);
-        player.add(loadedVrm.scene);
-        vrm = loadedVrm;
+        player.add(sceneRoot);
+        if (loadedVrm) vrm = loadedVrm;
         setLoading(false);
       },
-      undefined,
+      (xhr) => {
+        if (xhr.lengthComputable) {
+          console.log(`[Game] VRM ${(xhr.loaded / xhr.total * 100).toFixed(0)}%`);
+        }
+      },
       (err) => {
         console.error("VRM load failed", err);
         setLoading(false);
