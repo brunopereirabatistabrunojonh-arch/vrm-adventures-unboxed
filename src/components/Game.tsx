@@ -71,12 +71,19 @@ function updateCharacterAnimation(
   const isMoving = speed > walkThreshold;
   const targetWalk = isMoving ? 1 : 0;
   const targetRun = speed > runThreshold ? Math.min(1, (speed - runThreshold) / 2.5) : 0;
-  animState.walkBlend = lerp(animState.walkBlend, targetWalk, Math.min(1, dt * 8));
-  animState.runBlend = lerp(animState.runBlend, targetRun, Math.min(1, dt * 8));
+  animState.walkBlend = lerp(animState.walkBlend, targetWalk, Math.min(1, dt * 6));
+  animState.runBlend = lerp(animState.runBlend, targetRun, Math.min(1, dt * 6));
 
-  // Phase: cycle frequency scales with speed
-  const stepFreq = isMoving ? 2.0 + (speed / opts.maxSpeed) * 3.5 : 0;
-  animState.t += dt * (stepFreq > 0 ? stepFreq : 1.0);
+  // Stride-matched cadence so feet don't slide.
+  // legLen ~0.85, stride per step ≈ 2*legLen*sin(stepAmp) → cadence (steps/s) = speed/stride.
+  // One half-cycle of sin = one step, so angular freq = cadence * π.
+  const stepAmpTarget = 0.55 + animState.runBlend * 0.45; // bigger stride when running
+  const legLen = 0.85;
+  const stridePerStep = Math.max(0.35, 2 * legLen * Math.sin(stepAmpTarget));
+  const cadence = isMoving ? speed / stridePerStep : 0;     // steps per second
+  const stepFreq = cadence * Math.PI;                       // rad/s for sin(t)
+  // Always advance time a bit so idle breath/sway keep flowing
+  animState.t += dt * (stepFreq > 0 ? stepFreq : 1.2);
   const t = animState.t;
 
   const walk = animState.walkBlend;
@@ -90,109 +97,144 @@ function updateCharacterAnimation(
   const headBob = Math.sin(t * 0.7) * 0.03 * idle;
 
   // --- Walk/Run cycle ---
-  const cycle = Math.sin(t);
-  const cycleCos = Math.cos(t);
-  const stepAmp = 0.55 + run * 0.35;       // leg swing
-  const armSwing = 0.7 + run * 0.6;        // arm swing
-  const torsoLean = -(0.08 + run * 0.18) * walk;
-  const vertical = Math.abs(cycleCos) * 0.04 * walk;
+  // Legs drive the cycle; arms lag slightly behind (more human).
+  const legPhase = t;
+  const armLag = 0.18;                       // ~10°, natural delay
+  const armPhase = t - armLag;
+
+  const legCycle = Math.sin(legPhase);
+  const armCycle = Math.sin(armPhase);
+  const cosCycle = Math.cos(legPhase);
+
+  const stepAmp = stepAmpTarget;
+  const armSwing = (0.55 + run * 0.7) * walk;     // arms move only when walking
+  const torsoLean = -(0.10 + run * 0.16) * walk;  // forward lean
+  // Vertical bob: 2 peaks per stride cycle (one per foot contact)
+  const vertical = (Math.abs(cosCycle) - 0.5) * 0.05 * walk;
+  // Lateral hip sway: weight shifts to support leg (1 cycle per stride pair = freq/2)
+  const hipSwayLateral = Math.sin(legPhase * 0.5) * 0.12 * walk;
 
   // Hips
   setBone(vrm, "hips",
     torsoLean + breath * 0.3,
-    idleSway * 0.5 + cycle * 0.05 * walk,
-    Math.sin(t * 0.5) * 0.02 * idle + cycle * 0.04 * walk
+    // counter-rotate hips opposite to shoulders (~hip twist)
+    idleSway * 0.5 + legCycle * 0.18 * walk,
+    // lateral sway tilts the pelvis
+    Math.sin(t * 0.5) * 0.02 * idle + hipSwayLateral
   );
 
-  // Spine / chest — breathing + counter rotation
+  // Spine / chest — breathing + shoulder counter-rotation
   setBone(vrm, "spine",
-    0.04 + breath,
-    -cycle * 0.12 * walk,
+    0.04 + breath + 0.02 * walk,
+    -legCycle * 0.10 * walk,
     idleSway * 0.4
   );
   setBone(vrm, "chest",
     0.02 + breath * 1.2,
-    -cycle * 0.08 * walk,
-    0
+    -legCycle * 0.18 * walk,   // shoulders rotate opposite to hips
+    -hipSwayLateral * 0.4      // small counter-tilt
   );
   setBone(vrm, "upperChest",
     breath * 0.8,
-    -cycle * 0.05 * walk,
+    -legCycle * 0.10 * walk,
     0
   );
 
   // Neck / head — slight bob
   setBone(vrm, "neck",
     -breath * 0.5 + headBob,
-    cycle * 0.05 * walk,
-    0
+    legCycle * 0.06 * walk,
+    -hipSwayLateral * 0.2
   );
   setBone(vrm, "head",
     headBob * 0.6,
     Math.sin(t * 0.3) * 0.04 * idle,
-    0
+    hipSwayLateral * 0.2
   );
 
   // --- Arms ---
-  // Rest pose: arms down along body (z axis rotates outward in VRM normalized space)
+  // Rest pose: arms down along body
   const armRest = 1.25;
   const attackPose = attackTimer > 0 ? -1.5 : 0;
+  // Constant slight elbow bend; add gentle extra bend on forward swing only.
+  // Arms swing OPPOSITE to legs of the same side, i.e. armCycle for right arm is
+  // negative legCycle (right arm forward when right leg back).
+  const rArmSwing = -armCycle * armSwing;
+  const lArmSwing = armCycle * armSwing;
 
   // Right arm
   setBone(vrm, "rightUpperArm",
-    cycle * armSwing * walk + attackPose,
-    0,
+    rArmSwing + attackPose,
+    rArmSwing * 0.15,                          // slight inward/outward twist
     -armRest + idleArm * 0.4
   );
   setBone(vrm, "rightLowerArm",
-    -0.25 - Math.max(0, cycle) * 0.4 * walk - (attackTimer > 0 ? 0.6 : 0),
+    // base soft bend + smooth extra bend on forward swing (no Math.max kink)
+    -0.35 - (0.18 + 0.18 * run) * Math.max(0, rArmSwing) - (attackTimer > 0 ? 0.6 : 0),
     0,
-    -0.1
+    -0.12
   );
-  setBone(vrm, "rightHand", 0, 0, 0);
-
-  // Left arm (opposite phase)
-  setBone(vrm, "leftUpperArm",
-    -cycle * armSwing * walk,
+  setBone(vrm, "rightHand",
     0,
+    0,
+    -0.1 - rArmSwing * 0.1
+  );
+
+  // Left arm (opposite phase to right)
+  setBone(vrm, "leftUpperArm",
+    lArmSwing,
+    lArmSwing * 0.15,
     armRest - idleArm * 0.4
   );
   setBone(vrm, "leftLowerArm",
-    -0.25 - Math.max(0, -cycle) * 0.4 * walk,
+    -0.35 - (0.18 + 0.18 * run) * Math.max(0, lArmSwing),
     0,
-    0.1
+    0.12
   );
-  setBone(vrm, "leftHand", 0, 0, 0);
+  setBone(vrm, "leftHand",
+    0,
+    0,
+    0.1 + lArmSwing * 0.1
+  );
 
   // --- Legs ---
+  // Right leg: forward when legCycle > 0
+  const rLegSwing = legCycle * stepAmp * walk;
+  const lLegSwing = -legCycle * stepAmp * walk;
+
+  // Knee bend peaks just after foot lifts (in swing phase). Smooth via sin².
+  const rSwingPhase = Math.max(0, legCycle);          // 0..1
+  const lSwingPhase = Math.max(0, -legCycle);
+  const kneeBase = 0.05;                              // soft natural bend
+
   setBone(vrm, "rightUpperLeg",
-    -cycle * stepAmp * walk,
+    rLegSwing,
     0,
-    0
+    -hipSwayLateral * 0.3                            // pelvis tilt compensation
   );
   setBone(vrm, "rightLowerLeg",
-    Math.max(0, cycle) * 0.9 * walk,
+    kneeBase + rSwingPhase * rSwingPhase * (1.0 + 0.4 * run) * walk,
     0,
     0
   );
   setBone(vrm, "rightFoot",
-    -cycle * 0.2 * walk,
+    -rLegSwing * 0.35 + rSwingPhase * 0.25 * walk,   // toe lifts during swing
     0,
     0
   );
 
   setBone(vrm, "leftUpperLeg",
-    cycle * stepAmp * walk,
+    lLegSwing,
     0,
-    0
+    -hipSwayLateral * 0.3
   );
   setBone(vrm, "leftLowerLeg",
-    Math.max(0, -cycle) * 0.9 * walk,
+    kneeBase + lSwingPhase * lSwingPhase * (1.0 + 0.4 * run) * walk,
     0,
     0
   );
   setBone(vrm, "leftFoot",
-    cycle * 0.2 * walk,
+    -lLegSwing * 0.35 + lSwingPhase * 0.25 * walk,
     0,
     0
   );
