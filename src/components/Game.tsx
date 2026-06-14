@@ -35,6 +35,37 @@ const animState = {
   smoothed: new Map<string, { x: number; y: number; z: number }>(),
 };
 
+// Cached secondary bones (hair, ears, tail-like) discovered once per VRM.
+const secondaryCache = new WeakMap<
+  object,
+  { hair: THREE.Object3D[]; ears: THREE.Object3D[] }
+>();
+
+function getSecondaryBones(vrm: VRM) {
+  const key = vrm as unknown as object;
+  const cached = secondaryCache.get(key);
+  if (cached) return cached;
+  const hair: THREE.Object3D[] = [];
+  const ears: THREE.Object3D[] = [];
+  vrm.scene?.traverse((o) => {
+    const n = (o.name || "").toLowerCase();
+    if (!n) return;
+    if (n.includes("hair")) hair.push(o);
+    if (n.includes("ear") || n.includes("bunny") || n.includes("usagi")) ears.push(o);
+  });
+  // Store base rotations so we add on top, not overwrite.
+  [...hair, ...ears].forEach((o) => {
+    o.userData._baseRot = o.userData._baseRot ?? {
+      x: o.rotation.x,
+      y: o.rotation.y,
+      z: o.rotation.z,
+    };
+  });
+  const entry = { hair, ears };
+  secondaryCache.set(key, entry);
+  return entry;
+}
+
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
 }
@@ -91,14 +122,14 @@ function updateCharacterAnimation(
   }
   const attackMix = ap >= 0 ? 1 : 0;
 
-  // Locomotion blending
+  // Locomotion blending — slower lerp = smoother idle↔walk↔run transitions.
   const walkThreshold = 0.4;
   const runThreshold = 6.5;
   const isMoving = speed > walkThreshold;
   const targetWalk = isMoving ? 1 : 0;
   const targetRun = speed > runThreshold ? Math.min(1, (speed - runThreshold) / 2.5) : 0;
-  animState.walkBlend = lerp(animState.walkBlend, targetWalk, Math.min(1, dt * 6));
-  animState.runBlend = lerp(animState.runBlend, targetRun, Math.min(1, dt * 6));
+  animState.walkBlend = lerp(animState.walkBlend, targetWalk, Math.min(1, dt * 4.5));
+  animState.runBlend = lerp(animState.runBlend, targetRun, Math.min(1, dt * 4));
 
   // Stride-matched cadence so feet don't slide.
   // legLen ~0.85, stride per step ≈ 2*legLen*sin(stepAmp) → cadence (steps/s) = speed/stride.
@@ -133,91 +164,92 @@ function updateCharacterAnimation(
   const cosCycle = Math.cos(legPhase);
 
   const stepAmp = stepAmpTarget;
-  const armSwing = (0.55 + run * 0.7) * walk;     // arms move only when walking
-  const torsoLean = -(0.10 + run * 0.16) * walk;  // forward lean
-  // Vertical bob: 2 peaks per stride cycle (one per foot contact)
-  const vertical = (Math.abs(cosCycle) - 0.5) * 0.05 * walk;
-  // Lateral hip sway: weight shifts to support leg (1 cycle per stride pair = freq/2)
-  const hipSwayLateral = Math.sin(legPhase * 0.5) * 0.12 * walk;
+  const armSwing = (0.45 + run * 0.7) * walk;     // arms a touch softer for elegance
+  // Slight forward lean only when running — keep posture upright when walking.
+  const torsoLean = -(0.02 + run * 0.18) * walk;
+  // Vertical bounce: 2 peaks per stride (foot contacts). A little more pop.
+  const vertical = (Math.abs(cosCycle) - 0.5) * 0.07 * walk;
+  // Pronounced lateral hip sway — feminine weight-shift on the support leg.
+  const hipSwayLateral = Math.sin(legPhase * 0.5) * (0.18 + run * 0.04) * walk;
+  // Subtle catwalk cross-over: hips swing slightly across center line.
+  const hipCross = Math.sin(legPhase * 0.5) * 0.04 * walk;
 
-  // Hips
+  // Hips — twist + sensual lateral tilt
   setBone(vrm, "hips",
     torsoLean + breath * 0.3,
-    // counter-rotate hips opposite to shoulders (~hip twist)
-    idleSway * 0.5 + legCycle * 0.18 * walk,
-    // lateral sway tilts the pelvis
-    Math.sin(t * 0.5) * 0.02 * idle + hipSwayLateral
+    idleSway * 0.5 + legCycle * 0.22 * walk,
+    Math.sin(t * 0.5) * 0.02 * idle + hipSwayLateral + hipCross
   );
 
-  // Spine / chest — breathing + shoulder counter-rotation
+  // Spine — counter the hip lean so torso stays upright = chest projects.
   setBone(vrm, "spine",
-    0.04 + breath + 0.02 * walk + attackTorso,
-    -legCycle * 0.10 * walk,
-    idleSway * 0.4
+    -0.02 + breath + attackTorso,           // slight backward to open chest
+    -legCycle * 0.12 * walk,
+    idleSway * 0.4 - hipSwayLateral * 0.35  // counter-tilt against hips
   );
   setBone(vrm, "chest",
-    0.02 + breath * 1.2,
-    -legCycle * 0.18 * walk,   // shoulders rotate opposite to hips
-    -hipSwayLateral * 0.4      // small counter-tilt
+    -0.03 + breath * 1.2,                   // chest pushed forward/up
+    -legCycle * 0.20 * walk,                // shoulders rotate opposite to hips
+    -hipSwayLateral * 0.5
   );
   setBone(vrm, "upperChest",
-    breath * 0.8,
-    -legCycle * 0.10 * walk,
-    0
-  );
-
-  // Neck / head — slight bob
-  setBone(vrm, "neck",
-    -breath * 0.5 + headBob,
-    legCycle * 0.06 * walk,
+    -0.02 + breath * 0.8,
+    -legCycle * 0.12 * walk,
     -hipSwayLateral * 0.2
   );
+
+  // Neck / head — relaxed, head stays level while hips sway (counter-tilt).
+  setBone(vrm, "neck",
+    -breath * 0.5 + headBob + 0.02 * walk,
+    legCycle * 0.05 * walk,
+    -hipSwayLateral * 0.25
+  );
   setBone(vrm, "head",
-    headBob * 0.6,
-    Math.sin(t * 0.3) * 0.04 * idle,
-    hipSwayLateral * 0.2
+    headBob * 0.6 - 0.02 * walk,            // chin slightly up = confident
+    Math.sin(t * 0.3) * 0.04 * idle + legCycle * 0.03 * walk,
+    hipSwayLateral * 0.3
   );
 
   // --- Arms ---
-  // Rest pose: arms down along body
-  const armRest = 1.25;
+  // Rest pose: arms down along body (slightly relaxed shoulders).
+  const armRest = 1.22;
   // Arms swing OPPOSITE to same-side leg (right arm forward when right leg back).
   // Suppress walk swing on the attacking (right) arm during attack.
   const rArmSwing = -armCycle * armSwing * (1 - attackMix);
   const lArmSwing = armCycle * armSwing;
 
-  // Right arm
+  // Arms a touch in front of the body (feminine pose) + softer elbows.
+  const armForwardBias = 0.06 * walk;
   setBone(vrm, "rightUpperArm",
-    rArmSwing + attackArmX,
-    rArmSwing * 0.15,                          // slight inward/outward twist
-    -armRest + idleArm * 0.4
+    rArmSwing + attackArmX + armForwardBias,
+    rArmSwing * 0.12,
+    -armRest + idleArm * 0.4 - 0.05 * walk    // tuck closer to body
   );
   setBone(vrm, "rightLowerArm",
-    -0.35 - (0.18 + 0.18 * run) * Math.max(0, rArmSwing) - attackElbow,
-    0,
-    -0.12
+    -0.45 - (0.20 + 0.20 * run) * Math.max(0, rArmSwing) - attackElbow,
+    -0.05 * walk,
+    -0.10
   );
   setBone(vrm, "rightHand",
     0,
     0,
-    -0.1 - rArmSwing * 0.1
+    -0.08 - rArmSwing * 0.08
   );
 
-  // Left arm (opposite phase to right)
   setBone(vrm, "leftUpperArm",
-    lArmSwing,
-    lArmSwing * 0.15,
-    armRest - idleArm * 0.4
+    lArmSwing + armForwardBias,
+    lArmSwing * 0.12,
+    armRest - idleArm * 0.4 + 0.05 * walk
   );
   setBone(vrm, "leftLowerArm",
-    -0.35 - (0.18 + 0.18 * run) * Math.max(0, lArmSwing),
-    0,
-    0.12
+    -0.45 - (0.20 + 0.20 * run) * Math.max(0, lArmSwing),
+    0.05 * walk,
+    0.10
   );
   setBone(vrm, "leftHand",
     0,
     0,
-    0.1 + lArmSwing * 0.1
+    0.08 + lArmSwing * 0.08
   );
 
   // --- Legs ---
@@ -262,12 +294,33 @@ function updateCharacterAnimation(
     0
   );
 
-  // Vertical bob on root (gentle)
+  // Vertical bounce on root.
   if (vrm.scene) {
     const base = vrm.scene.userData._baseY ?? vrm.scene.position.y;
     vrm.scene.userData._baseY = base;
     vrm.scene.position.y = base + vertical;
   }
+
+  // --- Secondary motion: hair + bunny ears (procedural follow) ---
+  // Real VRM spring bones (if present) animate via vrm.update(); this layer
+  // adds a guaranteed gentle sway even when no spring rig is authored.
+  const { hair, ears } = getSecondaryBones(vrm);
+  const swayAmp = 0.05 + walk * 0.08 + run * 0.05;
+  const hairWave = Math.sin(t * 0.9 - 0.4) * swayAmp;
+  const hairSide = Math.sin(legPhase * 0.5 - 0.6) * (0.04 + walk * 0.05);
+  hair.forEach((h, i) => {
+    const b = h.userData._baseRot;
+    const phase = i * 0.25;
+    h.rotation.x = b.x + Math.sin(t * 0.9 + phase) * swayAmp * 0.6 + hairWave * 0.3;
+    h.rotation.z = b.z + hairSide + Math.sin(t * 0.7 + phase) * 0.02;
+  });
+  const earWobble = Math.sin(t * 1.4) * (0.03 + walk * 0.04) + vertical * 0.6;
+  ears.forEach((e, i) => {
+    const b = e.userData._baseRot;
+    const sign = i % 2 === 0 ? 1 : -1;
+    e.rotation.x = b.x + earWobble;
+    e.rotation.z = b.z + sign * Math.sin(t * 1.1) * 0.02;
+  });
 
   if (dead) {
     // Collapse: tilt forward
