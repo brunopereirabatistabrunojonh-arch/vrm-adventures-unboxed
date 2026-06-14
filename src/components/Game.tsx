@@ -170,32 +170,32 @@ function updateCharacterAnimation(
   // Vertical bounce: 2 peaks per stride (foot contacts). A little more pop.
   const vertical = (Math.abs(cosCycle) - 0.5) * 0.07 * walk;
   // Pronounced lateral hip sway — feminine weight-shift on the support leg.
-  const hipSwayLateral = Math.sin(legPhase * 0.5) * (0.18 + run * 0.04) * walk;
-  // Subtle catwalk cross-over: hips swing slightly across center line.
-  const hipCross = Math.sin(legPhase * 0.5) * 0.04 * walk;
+  const hipSwayLateral = Math.sin(legPhase * 0.5) * (0.16 + run * 0.04) * walk;
 
-  // Hips — twist + sensual lateral tilt
+  // Hips — only lateral tilt (no Y twist, which would rotate the legs and
+  // make knees point inward). Pelvis twist lives on the spine instead.
   setBone(vrm, "hips",
     torsoLean + breath * 0.3,
-    idleSway * 0.5 + legCycle * 0.22 * walk,
-    Math.sin(t * 0.5) * 0.02 * idle + hipSwayLateral + hipCross
+    idleSway * 0.5,
+    Math.sin(t * 0.5) * 0.02 * idle + hipSwayLateral
   );
 
-  // Spine — counter the hip lean so torso stays upright = chest projects.
+  // Spine — pelvis-vs-shoulder counter twist lives here so legs stay clean.
+  // Slight backward tilt opens the chest = confident posture.
   setBone(vrm, "spine",
-    -0.02 + breath + attackTorso,           // slight backward to open chest
-    -legCycle * 0.12 * walk,
-    idleSway * 0.4 - hipSwayLateral * 0.35  // counter-tilt against hips
+    -0.02 + breath + attackTorso,
+    legCycle * 0.10 * walk,                  // pelvis-side twist
+    idleSway * 0.4 - hipSwayLateral * 0.35   // counter-tilt against hips
   );
   setBone(vrm, "chest",
-    -0.03 + breath * 1.2,                   // chest pushed forward/up
-    -legCycle * 0.20 * walk,                // shoulders rotate opposite to hips
+    -0.03 + breath * 1.2,
+    -legCycle * 0.18 * walk,                 // shoulders opposite to pelvis
     -hipSwayLateral * 0.5
   );
   setBone(vrm, "upperChest",
     -0.02 + breath * 0.8,
     -legCycle * 0.12 * walk,
-    -hipSwayLateral * 0.2
+    -hipSwayLateral * 0.25
   );
 
   // Neck / head — relaxed, head stays level while hips sway (counter-tilt).
