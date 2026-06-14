@@ -122,29 +122,31 @@ function updateCharacterAnimation(
   }
   const attackMix = ap >= 0 ? 1 : 0;
 
-  // Locomotion blending — slower lerp = smoother idle↔walk↔run transitions.
+  // Locomotion blending — responsive enough for sprint, still soft on idle↔move.
   const walkThreshold = 0.4;
   const runThreshold = 6.5;
   const isMoving = speed > walkThreshold;
   const targetWalk = isMoving ? 1 : 0;
   const targetRun = speed > runThreshold ? Math.min(1, (speed - runThreshold) / 2.5) : 0;
-  animState.walkBlend = lerp(animState.walkBlend, targetWalk, Math.min(1, dt * 4.5));
-  animState.runBlend = lerp(animState.runBlend, targetRun, Math.min(1, dt * 4));
+  animState.walkBlend = lerp(animState.walkBlend, targetWalk, Math.min(1, dt * 6));
+  animState.runBlend = lerp(animState.runBlend, targetRun, Math.min(1, dt * 8));
 
-  // Stride-matched cadence so feet don't slide.
-  // legLen ~0.85, stride per step ≈ 2*legLen*sin(stepAmp) → cadence (steps/s) = speed/stride.
-  // One half-cycle of sin = one step, so angular freq = cadence * π.
-  const stepAmpTarget = 0.55 + animState.runBlend * 0.45; // bigger stride when running
+  // Stride-matched cadence so the body does not look like it is sliding.
+  // The sprint cadence is capped so the smoothing does not flatten the legs.
+  const moveRatio = opts.maxSpeed > 0 ? Math.min(1, speed / opts.maxSpeed) : 0;
+  const stepAmpTarget = 0.55 + animState.runBlend * 0.55; // long, readable sprint stride
   const legLen = 0.85;
   const stridePerStep = Math.max(0.35, 2 * legLen * Math.sin(stepAmpTarget));
-  const cadence = isMoving ? speed / stridePerStep : 0;     // steps per second
-  const stepFreq = cadence * Math.PI;                       // rad/s for sin(t)
+  const cadence = isMoving ? Math.min(5.0, Math.max(1.8, speed / stridePerStep)) : 0;
+  const stepFreq = cadence * Math.PI;
   // Always advance time a bit so idle breath/sway keep flowing
   animState.t += dt * (stepFreq > 0 ? stepFreq : 1.2);
   const t = animState.t;
 
   const walk = animState.walkBlend;
   const run = animState.runBlend;
+  const walkOnly = walk * (1 - run);
+  const sprint = walk * run;
   const idle = Math.max(0, 1 - walk);
 
   // --- Breathing & idle sway ---
@@ -154,9 +156,9 @@ function updateCharacterAnimation(
   const headBob = Math.sin(t * 0.7) * 0.03 * idle;
 
   // --- Walk/Run cycle ---
-  // Legs drive the cycle; arms lag slightly behind (more human).
+  // Legs drive the cycle; arms lag slightly behind (more human and less robotic).
   const legPhase = t;
-  const armLag = 0.18;                       // ~10°, natural delay
+  const armLag = 0.18 + sprint * 0.08;
   const armPhase = t - armLag;
 
   const legCycle = Math.sin(legPhase);
@@ -164,50 +166,60 @@ function updateCharacterAnimation(
   const cosCycle = Math.cos(legPhase);
 
   const stepAmp = stepAmpTarget;
-  const armSwing = (0.45 + run * 0.7) * walk;     // arms a touch softer for elegance
-  // Slight forward lean only when running — keep posture upright when walking.
-  const torsoLean = -(0.02 + run * 0.18) * walk;
-  // Vertical bounce: 2 peaks per stride (foot contacts). A little more pop.
-  const vertical = (Math.abs(cosCycle) - 0.5) * 0.07 * walk;
-  // Pronounced lateral hip sway — feminine weight-shift on the support leg.
-  const hipSwayLateral = Math.sin(legPhase * 0.5) * (0.16 + run * 0.04) * walk;
+  const armSwing = (0.42 * walkOnly + 1.15 * sprint) * (0.85 + moveRatio * 0.15);
+  // Upright walk, athletic sprint lean.
+  const torsoLean = -(0.02 * walkOnly + 0.24 * sprint);
+  // Run has a springy flight/contact bounce: two impacts per full stride.
+  const runImpact = Math.pow(Math.max(0, Math.abs(cosCycle)), 1.7);
+  const vertical = (Math.abs(cosCycle) - 0.5) * 0.06 * walkOnly + (runImpact - 0.55) * 0.12 * sprint;
+  // Feminine, energetic hip sway without Y-axis twist, keeping knees aligned.
+  const hipSwayLateral = Math.sin(legPhase * 0.5) * 0.15 * walkOnly + Math.sin(legPhase) * 0.11 * sprint;
+  const hipRoll = Math.sin(legPhase) * 0.035 * sprint;
+  const bodyDrive = Math.sin(legPhase + 0.4) * 0.03 * sprint;
+  const limbSmooth = 0.32 + sprint * 0.35;
+  const coreSmooth = 0.22 + sprint * 0.16;
 
   // Hips — only lateral tilt (no Y twist, which would rotate the legs and
-  // make knees point inward). Pelvis twist lives on the spine instead.
+  // make knees point inward). Sprint drive stays on X/Z axes.
   setBone(vrm, "hips",
-    torsoLean + breath * 0.3,
+    torsoLean + breath * 0.3 + hipRoll,
     idleSway * 0.5,
     Math.sin(t * 0.5) * 0.02 * idle + hipSwayLateral
+    , coreSmooth
   );
 
-  // Spine / chest — NO Y twist (was making the torso spin). Just breathing
-  // and a soft lateral counter-tilt against the hips.
+  // Spine / chest — NO Y twist. Counter-tilt gives force without spinning.
   setBone(vrm, "spine",
-    -0.02 + breath + attackTorso,
+    -0.02 + breath + attackTorso + bodyDrive,
     0,
-    -hipSwayLateral * 0.3
+    -hipSwayLateral * 0.28,
+    coreSmooth
   );
   setBone(vrm, "chest",
-    -0.02 + breath * 1.2,
+    -0.02 + breath * 1.2 + bodyDrive * 0.6,
     0,
-    -hipSwayLateral * 0.4
+    -hipSwayLateral * 0.36,
+    coreSmooth
   );
   setBone(vrm, "upperChest",
-    -0.01 + breath * 0.8,
+    -0.01 + breath * 0.8 + bodyDrive * 0.4,
     0,
-    -hipSwayLateral * 0.2
+    -hipSwayLateral * 0.18,
+    coreSmooth
   );
 
   // Neck / head — kept level, no twist.
   setBone(vrm, "neck",
-    -breath * 0.5 + headBob,
+    -breath * 0.5 + headBob - vertical * 0.35,
     0,
-    -hipSwayLateral * 0.15
+    -hipSwayLateral * 0.12,
+    coreSmooth
   );
   setBone(vrm, "head",
-    headBob * 0.6 - 0.02 * walk,
+    headBob * 0.6 - 0.02 * walk - vertical * 0.18,
     Math.sin(t * 0.3) * 0.04 * idle,
-    hipSwayLateral * 0.2
+    hipSwayLateral * 0.16,
+    coreSmooth
   );
 
   // --- Arms ---
@@ -218,80 +230,108 @@ function updateCharacterAnimation(
   const rArmSwing = -armCycle * armSwing * (1 - attackMix);
   const lArmSwing = armCycle * armSwing;
 
-  // Arms a touch in front of the body (feminine pose) + softer elbows.
-  const armForwardBias = 0.06 * walk;
+  // Running drives elbows and shoulders strongly; no side twist that fights the rig.
+  const armForwardBias = 0.04 * walkOnly + 0.02 * sprint;
+  const rElbowDrive = 0.55 + 0.35 * sprint + Math.max(0, rArmSwing) * 0.35;
+  const lElbowDrive = 0.55 + 0.35 * sprint + Math.max(0, lArmSwing) * 0.35;
   setBone(vrm, "rightUpperArm",
     rArmSwing + attackArmX + armForwardBias,
-    rArmSwing * 0.12,
-    -armRest + idleArm * 0.4 - 0.05 * walk    // tuck closer to body
+    rArmSwing * 0.06,
+    -armRest + idleArm * 0.4 - 0.06 * walk + 0.12 * sprint,
+    limbSmooth
   );
   setBone(vrm, "rightLowerArm",
-    -0.45 - (0.20 + 0.20 * run) * Math.max(0, rArmSwing) - attackElbow,
-    -0.05 * walk,
-    -0.10
+    -rElbowDrive - attackElbow,
+    -0.03 * walk,
+    -0.08,
+    limbSmooth
   );
   setBone(vrm, "rightHand",
     0,
     0,
-    -0.08 - rArmSwing * 0.08
+    -0.08 - rArmSwing * 0.08,
+    limbSmooth
   );
 
   setBone(vrm, "leftUpperArm",
     lArmSwing + armForwardBias,
-    lArmSwing * 0.12,
-    armRest - idleArm * 0.4 + 0.05 * walk
+    lArmSwing * 0.06,
+    armRest - idleArm * 0.4 + 0.06 * walk - 0.12 * sprint,
+    limbSmooth
   );
   setBone(vrm, "leftLowerArm",
-    -0.45 - (0.20 + 0.20 * run) * Math.max(0, lArmSwing),
-    0.05 * walk,
-    0.10
+    -lElbowDrive,
+    0.03 * walk,
+    0.08,
+    limbSmooth
   );
   setBone(vrm, "leftHand",
     0,
     0,
-    0.08 + lArmSwing * 0.08
+    0.08 + lArmSwing * 0.08,
+    limbSmooth
   );
 
   // --- Legs ---
-  // Right leg: forward when legCycle > 0
-  const rLegSwing = legCycle * stepAmp * walk;
-  const lLegSwing = -legCycle * stepAmp * walk;
+  // Full sprint cycle: thigh drive, knee lift, contact compression and toe-off.
+  // Only X rotations on legs/feet to prevent inward knee/ankle twisting.
+  const walkHipAmp = stepAmp * walkOnly;
+  const runHipAmp = 1.18 * sprint;
+  const rSwing = Math.max(0, legCycle);
+  const lSwing = Math.max(0, -legCycle);
+  const rBack = Math.max(0, -legCycle);
+  const lBack = Math.max(0, legCycle);
+  const rLift = Math.max(0, cosCycle);
+  const lLift = Math.max(0, -cosCycle);
+  const rGround = Math.max(0, -cosCycle);
+  const lGround = Math.max(0, cosCycle);
+  const kneeBase = 0.08 * walk;
+  const runKneePower = 1.65 * sprint;
+  const runContactBend = 0.28 * sprint;
 
-  // Knee bend peaks just after foot lifts (in swing phase). Smooth via sin².
-  const rSwingPhase = Math.max(0, legCycle);          // 0..1
-  const lSwingPhase = Math.max(0, -legCycle);
-  const kneeBase = 0.05;                              // soft natural bend
+  const rLegSwing = legCycle * walkHipAmp + (rSwing * 0.92 - rBack * 0.68) * runHipAmp;
+  const lLegSwing = -legCycle * walkHipAmp + (lSwing * 0.92 - lBack * 0.68) * runHipAmp;
+  const rKnee = kneeBase + rSwing * rSwing * (0.95 * walkOnly + runKneePower) + rGround * runContactBend;
+  const lKnee = kneeBase + lSwing * lSwing * (0.95 * walkOnly + runKneePower) + lGround * runContactBend;
+  const rFoot = -rLegSwing * 0.36 + rSwing * 0.22 * walkOnly + rLift * 0.46 * sprint - rGround * 0.24 * sprint;
+  const lFoot = -lLegSwing * 0.36 + lSwing * 0.22 * walkOnly + lLift * 0.46 * sprint - lGround * 0.24 * sprint;
 
   setBone(vrm, "rightUpperLeg",
     rLegSwing,
     0,
-    0
+    0,
+    limbSmooth
   );
   setBone(vrm, "rightLowerLeg",
-    kneeBase + rSwingPhase * rSwingPhase * (1.0 + 0.4 * run) * walk,
+    rKnee,
     0,
-    0
+    0,
+    limbSmooth
   );
   setBone(vrm, "rightFoot",
-    -rLegSwing * 0.35 + rSwingPhase * 0.25 * walk,   // toe lifts during swing
+    rFoot,
     0,
-    0
+    0,
+    limbSmooth
   );
 
   setBone(vrm, "leftUpperLeg",
     lLegSwing,
     0,
-    0
+    0,
+    limbSmooth
   );
   setBone(vrm, "leftLowerLeg",
-    kneeBase + lSwingPhase * lSwingPhase * (1.0 + 0.4 * run) * walk,
+    lKnee,
     0,
-    0
+    0,
+    limbSmooth
   );
   setBone(vrm, "leftFoot",
-    -lLegSwing * 0.35 + lSwingPhase * 0.25 * walk,
+    lFoot,
     0,
-    0
+    0,
+    limbSmooth
   );
 
   // Vertical bounce on root.
@@ -305,21 +345,21 @@ function updateCharacterAnimation(
   // Real VRM spring bones (if present) animate via vrm.update(); this layer
   // adds a guaranteed gentle sway even when no spring rig is authored.
   const { hair, ears } = getSecondaryBones(vrm);
-  const swayAmp = 0.05 + walk * 0.08 + run * 0.05;
-  const hairWave = Math.sin(t * 0.9 - 0.4) * swayAmp;
-  const hairSide = Math.sin(legPhase * 0.5 - 0.6) * (0.04 + walk * 0.05);
+  const swayAmp = 0.05 + walkOnly * 0.08 + sprint * 0.2;
+  const hairWave = Math.sin(t * 0.9 - 0.4) * swayAmp + vertical * 0.8;
+  const hairSide = Math.sin(legPhase * 0.5 - 0.6) * (0.04 + walkOnly * 0.05 + sprint * 0.12);
   hair.forEach((h, i) => {
     const b = h.userData._baseRot;
     const phase = i * 0.25;
-    h.rotation.x = b.x + Math.sin(t * 0.9 + phase) * swayAmp * 0.6 + hairWave * 0.3;
-    h.rotation.z = b.z + hairSide + Math.sin(t * 0.7 + phase) * 0.02;
+    h.rotation.x = b.x + Math.sin(t * 0.9 + phase) * swayAmp * 0.65 + hairWave * 0.45;
+    h.rotation.z = b.z + hairSide + Math.sin(t * 0.7 + phase) * (0.02 + sprint * 0.04);
   });
-  const earWobble = Math.sin(t * 1.4) * (0.03 + walk * 0.04) + vertical * 0.6;
+  const earWobble = Math.sin(t * 1.4) * (0.03 + walkOnly * 0.04 + sprint * 0.12) + vertical * (0.6 + sprint * 0.7);
   ears.forEach((e, i) => {
     const b = e.userData._baseRot;
     const sign = i % 2 === 0 ? 1 : -1;
     e.rotation.x = b.x + earWobble;
-    e.rotation.z = b.z + sign * Math.sin(t * 1.1) * 0.02;
+    e.rotation.z = b.z + sign * Math.sin(t * 1.1) * (0.02 + sprint * 0.08);
   });
 
   if (dead) {
