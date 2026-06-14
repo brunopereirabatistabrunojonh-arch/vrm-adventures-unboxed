@@ -180,34 +180,34 @@ function updateCharacterAnimation(
     Math.sin(t * 0.5) * 0.02 * idle + hipSwayLateral
   );
 
-  // Spine — pelvis-vs-shoulder counter twist lives here so legs stay clean.
-  // Slight backward tilt opens the chest = confident posture.
+  // Spine / chest — NO Y twist (was making the torso spin). Just breathing
+  // and a soft lateral counter-tilt against the hips.
   setBone(vrm, "spine",
     -0.02 + breath + attackTorso,
-    legCycle * 0.10 * walk,                  // pelvis-side twist
-    idleSway * 0.4 - hipSwayLateral * 0.35   // counter-tilt against hips
+    0,
+    -hipSwayLateral * 0.3
   );
   setBone(vrm, "chest",
-    -0.03 + breath * 1.2,
-    -legCycle * 0.18 * walk,                 // shoulders opposite to pelvis
-    -hipSwayLateral * 0.5
+    -0.02 + breath * 1.2,
+    0,
+    -hipSwayLateral * 0.4
   );
   setBone(vrm, "upperChest",
-    -0.02 + breath * 0.8,
-    -legCycle * 0.12 * walk,
-    -hipSwayLateral * 0.25
+    -0.01 + breath * 0.8,
+    0,
+    -hipSwayLateral * 0.2
   );
 
-  // Neck / head — relaxed, head stays level while hips sway (counter-tilt).
+  // Neck / head — kept level, no twist.
   setBone(vrm, "neck",
-    -breath * 0.5 + headBob + 0.02 * walk,
-    legCycle * 0.05 * walk,
-    -hipSwayLateral * 0.25
+    -breath * 0.5 + headBob,
+    0,
+    -hipSwayLateral * 0.15
   );
   setBone(vrm, "head",
-    headBob * 0.6 - 0.02 * walk,            // chin slightly up = confident
-    Math.sin(t * 0.3) * 0.04 * idle + legCycle * 0.03 * walk,
-    hipSwayLateral * 0.3
+    headBob * 0.6 - 0.02 * walk,
+    Math.sin(t * 0.3) * 0.04 * idle,
+    hipSwayLateral * 0.2
   );
 
   // --- Arms ---
