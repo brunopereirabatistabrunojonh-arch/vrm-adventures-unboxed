@@ -70,6 +70,11 @@ function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
 }
 
+function quatTuple(x: number, y: number, z: number): [number, number, number, number] {
+  const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z, "XYZ"));
+  return [q.x, q.y, q.z, q.w];
+}
+
 function setBone(
   vrm: VRM,
   name: Parameters<NonNullable<VRM["humanoid"]>["getNormalizedBoneNode"]>[0],
@@ -288,64 +293,48 @@ function updateCharacterAnimation(
   const lLift = Math.max(0, -cosCycle);
   const rGround = Math.max(0, -cosCycle);
   const lGround = Math.max(0, cosCycle);
-  // Knee flexion — walk needs a visible bend on BOTH the swing (foot lifted)
-  // and the contact/push-off phase so the leg never looks like one rigid piece.
-  const kneeBase = 0.18 * walk;
-  const walkKneeSwing = 0.95 * walkOnly;   // peak bend when leg lifts forward
-  const walkKneeContact = 0.55 * walkOnly; // softer bend on stance / push-off
-  const runKneePower = 1.65 * sprint;
-  const runContactBend = 0.28 * sprint;
+  // Knee flexion — VRM lower-leg bones must bend opposite the thigh swing.
+  // Using a visible negative X fold makes the knee articulate instead of the
+  // whole leg rotating like one stiff piece.
+  const kneeBase = 0.24 * walk;
+  const walkKneeSwing = 1.25 * walkOnly;   // clear bend while the foot is lifted
+  const walkKneeContact = 0.72 * walkOnly; // stance compression / push-off bend
+  const runKneePower = 2.05 * sprint;
+  const runContactBend = 0.5 * sprint;
 
   const rLegSwing = legCycle * walkHipAmp + (rSwing * 0.92 - rBack * 0.68) * runHipAmp;
   const lLegSwing = -legCycle * walkHipAmp + (lSwing * 0.92 - lBack * 0.68) * runHipAmp;
-  const rKnee =
+  const rKneeBend =
     kneeBase +
     rSwing * rSwing * (walkKneeSwing + runKneePower) +
     rGround * (walkKneeContact + runContactBend);
-  const lKnee =
+  const lKneeBend =
     kneeBase +
     lSwing * lSwing * (walkKneeSwing + runKneePower) +
     lGround * (walkKneeContact + runContactBend);
-  const rFoot = -rLegSwing * 0.36 + rSwing * 0.22 * walkOnly + rLift * 0.46 * sprint - rGround * 0.24 * sprint;
-  const lFoot = -lLegSwing * 0.36 + lSwing * 0.22 * walkOnly + lLift * 0.46 * sprint - lGround * 0.24 * sprint;
+  const rKnee = -rKneeBend;
+  const lKnee = -lKneeBend;
+  const rFoot = -rLegSwing * 0.42 + rKneeBend * 0.22 + rSwing * 0.2 * walkOnly + rLift * 0.42 * sprint - rGround * 0.18 * sprint;
+  const lFoot = -lLegSwing * 0.42 + lKneeBend * 0.22 + lSwing * 0.2 * walkOnly + lLift * 0.42 * sprint - lGround * 0.18 * sprint;
 
-  setBone(vrm, "rightUpperLeg",
-    rLegSwing,
-    0,
-    0,
-    legSmooth
-  );
-  setBone(vrm, "rightLowerLeg",
-    rKnee,
-    0,
-    0,
-    legSmooth
-  );
-  setBone(vrm, "rightFoot",
-    rFoot,
-    0,
-    0,
-    legSmooth
-  );
+  setBone(vrm, "rightUpperLeg", rLegSwing, 0, 0, legSmooth);
+  setBone(vrm, "rightLowerLeg", rKnee, 0, 0, 1);
+  setBone(vrm, "rightFoot", rFoot, 0, 0, legSmooth);
 
-  setBone(vrm, "leftUpperLeg",
-    lLegSwing,
-    0,
-    0,
-    legSmooth
-  );
-  setBone(vrm, "leftLowerLeg",
-    lKnee,
-    0,
-    0,
-    legSmooth
-  );
-  setBone(vrm, "leftFoot",
-    lFoot,
-    0,
-    0,
-    legSmooth
-  );
+  setBone(vrm, "leftUpperLeg", lLegSwing, 0, 0, legSmooth);
+  setBone(vrm, "leftLowerLeg", lKnee, 0, 0, 1);
+  setBone(vrm, "leftFoot", lFoot, 0, 0, legSmooth);
+
+  // Apply the same leg pose through the VRM humanoid API as well. This is the
+  // rig-correct path and prevents vrm.update() from flattening/overriding knees.
+  vrm.humanoid?.setNormalizedPose({
+    rightUpperLeg: { rotation: quatTuple(rLegSwing, 0, 0) },
+    rightLowerLeg: { rotation: quatTuple(rKnee, 0, 0) },
+    rightFoot: { rotation: quatTuple(rFoot, 0, 0) },
+    leftUpperLeg: { rotation: quatTuple(lLegSwing, 0, 0) },
+    leftLowerLeg: { rotation: quatTuple(lKnee, 0, 0) },
+    leftFoot: { rotation: quatTuple(lFoot, 0, 0) },
+  });
 
   // Vertical bounce on root.
   if (vrm.scene) {
