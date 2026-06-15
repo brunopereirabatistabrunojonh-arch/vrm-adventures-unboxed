@@ -177,6 +177,9 @@ function updateCharacterAnimation(
   const hipRoll = Math.sin(legPhase) * 0.035 * sprint;
   const bodyDrive = Math.sin(legPhase + 0.4) * 0.03 * sprint;
   const limbSmooth = 0.32 + sprint * 0.35;
+  // Legs need a snappier response so the knee bend actually registers on each
+  // step instead of being smoothed into a near-straight line.
+  const legSmooth = 0.55 + sprint * 0.25;
   const coreSmooth = 0.22 + sprint * 0.16;
 
   // Hips — only lateral tilt (no Y twist, which would rotate the legs and
