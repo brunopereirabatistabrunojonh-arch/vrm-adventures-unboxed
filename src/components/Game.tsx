@@ -70,6 +70,11 @@ function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
 }
 
+function quatTuple(x: number, y: number, z: number): [number, number, number, number] {
+  const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z, "XYZ"));
+  return [q.x, q.y, q.z, q.w];
+}
+
 function setBone(
   vrm: VRM,
   name: Parameters<NonNullable<VRM["humanoid"]>["getNormalizedBoneNode"]>[0],
