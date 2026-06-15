@@ -317,43 +317,24 @@ function updateCharacterAnimation(
   const rFoot = -rLegSwing * 0.42 + rKneeBend * 0.22 + rSwing * 0.2 * walkOnly + rLift * 0.42 * sprint - rGround * 0.18 * sprint;
   const lFoot = -lLegSwing * 0.42 + lKneeBend * 0.22 + lSwing * 0.2 * walkOnly + lLift * 0.42 * sprint - lGround * 0.18 * sprint;
 
-  setBone(vrm, "rightUpperLeg",
-    rLegSwing,
-    0,
-    0,
-    legSmooth
-  );
-  setBone(vrm, "rightLowerLeg",
-    rKnee,
-    0,
-    0,
-    legSmooth
-  );
-  setBone(vrm, "rightFoot",
-    rFoot,
-    0,
-    0,
-    legSmooth
-  );
+  setBone(vrm, "rightUpperLeg", rLegSwing, 0, 0, legSmooth);
+  setBone(vrm, "rightLowerLeg", rKnee, 0, 0, 1);
+  setBone(vrm, "rightFoot", rFoot, 0, 0, legSmooth);
 
-  setBone(vrm, "leftUpperLeg",
-    lLegSwing,
-    0,
-    0,
-    legSmooth
-  );
-  setBone(vrm, "leftLowerLeg",
-    lKnee,
-    0,
-    0,
-    legSmooth
-  );
-  setBone(vrm, "leftFoot",
-    lFoot,
-    0,
-    0,
-    legSmooth
-  );
+  setBone(vrm, "leftUpperLeg", lLegSwing, 0, 0, legSmooth);
+  setBone(vrm, "leftLowerLeg", lKnee, 0, 0, 1);
+  setBone(vrm, "leftFoot", lFoot, 0, 0, legSmooth);
+
+  // Apply the same leg pose through the VRM humanoid API as well. This is the
+  // rig-correct path and prevents vrm.update() from flattening/overriding knees.
+  vrm.humanoid?.setNormalizedPose({
+    rightUpperLeg: { rotation: quatTuple(rLegSwing, 0, 0) },
+    rightLowerLeg: { rotation: quatTuple(rKnee, 0, 0) },
+    rightFoot: { rotation: quatTuple(rFoot, 0, 0) },
+    leftUpperLeg: { rotation: quatTuple(lLegSwing, 0, 0) },
+    leftLowerLeg: { rotation: quatTuple(lKnee, 0, 0) },
+    leftFoot: { rotation: quatTuple(lFoot, 0, 0) },
+  });
 
   // Vertical bounce on root.
   if (vrm.scene) {
