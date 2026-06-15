@@ -285,14 +285,24 @@ function updateCharacterAnimation(
   const lLift = Math.max(0, -cosCycle);
   const rGround = Math.max(0, -cosCycle);
   const lGround = Math.max(0, cosCycle);
-  const kneeBase = 0.08 * walk;
+  // Knee flexion — walk needs a visible bend on BOTH the swing (foot lifted)
+  // and the contact/push-off phase so the leg never looks like one rigid piece.
+  const kneeBase = 0.18 * walk;
+  const walkKneeSwing = 0.95 * walkOnly;   // peak bend when leg lifts forward
+  const walkKneeContact = 0.55 * walkOnly; // softer bend on stance / push-off
   const runKneePower = 1.65 * sprint;
   const runContactBend = 0.28 * sprint;
 
   const rLegSwing = legCycle * walkHipAmp + (rSwing * 0.92 - rBack * 0.68) * runHipAmp;
   const lLegSwing = -legCycle * walkHipAmp + (lSwing * 0.92 - lBack * 0.68) * runHipAmp;
-  const rKnee = kneeBase + rSwing * rSwing * (0.95 * walkOnly + runKneePower) + rGround * runContactBend;
-  const lKnee = kneeBase + lSwing * lSwing * (0.95 * walkOnly + runKneePower) + lGround * runContactBend;
+  const rKnee =
+    kneeBase +
+    rSwing * rSwing * (walkKneeSwing + runKneePower) +
+    rGround * (walkKneeContact + runContactBend);
+  const lKnee =
+    kneeBase +
+    lSwing * lSwing * (walkKneeSwing + runKneePower) +
+    lGround * (walkKneeContact + runContactBend);
   const rFoot = -rLegSwing * 0.36 + rSwing * 0.22 * walkOnly + rLift * 0.46 * sprint - rGround * 0.24 * sprint;
   const lFoot = -lLegSwing * 0.36 + lSwing * 0.22 * walkOnly + lLift * 0.46 * sprint - lGround * 0.24 * sprint;
 
