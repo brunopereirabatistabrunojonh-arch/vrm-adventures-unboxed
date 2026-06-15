@@ -313,38 +313,38 @@ function updateCharacterAnimation(
     rLegSwing,
     0,
     0,
-    limbSmooth
+    legSmooth
   );
   setBone(vrm, "rightLowerLeg",
     rKnee,
     0,
     0,
-    limbSmooth
+    legSmooth
   );
   setBone(vrm, "rightFoot",
     rFoot,
     0,
     0,
-    limbSmooth
+    legSmooth
   );
 
   setBone(vrm, "leftUpperLeg",
     lLegSwing,
     0,
     0,
-    limbSmooth
+    legSmooth
   );
   setBone(vrm, "leftLowerLeg",
     lKnee,
     0,
     0,
-    limbSmooth
+    legSmooth
   );
   setBone(vrm, "leftFoot",
     lFoot,
     0,
     0,
-    limbSmooth
+    legSmooth
   );
 
   // Vertical bounce on root.
