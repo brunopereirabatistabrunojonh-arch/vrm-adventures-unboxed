@@ -177,6 +177,9 @@ function updateCharacterAnimation(
   const hipRoll = Math.sin(legPhase) * 0.035 * sprint;
   const bodyDrive = Math.sin(legPhase + 0.4) * 0.03 * sprint;
   const limbSmooth = 0.32 + sprint * 0.35;
+  // Legs need a snappier response so the knee bend actually registers on each
+  // step instead of being smoothed into a near-straight line.
+  const legSmooth = 0.55 + sprint * 0.25;
   const coreSmooth = 0.22 + sprint * 0.16;
 
   // Hips — only lateral tilt (no Y twist, which would rotate the legs and
@@ -285,14 +288,24 @@ function updateCharacterAnimation(
   const lLift = Math.max(0, -cosCycle);
   const rGround = Math.max(0, -cosCycle);
   const lGround = Math.max(0, cosCycle);
-  const kneeBase = 0.08 * walk;
+  // Knee flexion — walk needs a visible bend on BOTH the swing (foot lifted)
+  // and the contact/push-off phase so the leg never looks like one rigid piece.
+  const kneeBase = 0.18 * walk;
+  const walkKneeSwing = 0.95 * walkOnly;   // peak bend when leg lifts forward
+  const walkKneeContact = 0.55 * walkOnly; // softer bend on stance / push-off
   const runKneePower = 1.65 * sprint;
   const runContactBend = 0.28 * sprint;
 
   const rLegSwing = legCycle * walkHipAmp + (rSwing * 0.92 - rBack * 0.68) * runHipAmp;
   const lLegSwing = -legCycle * walkHipAmp + (lSwing * 0.92 - lBack * 0.68) * runHipAmp;
-  const rKnee = kneeBase + rSwing * rSwing * (0.95 * walkOnly + runKneePower) + rGround * runContactBend;
-  const lKnee = kneeBase + lSwing * lSwing * (0.95 * walkOnly + runKneePower) + lGround * runContactBend;
+  const rKnee =
+    kneeBase +
+    rSwing * rSwing * (walkKneeSwing + runKneePower) +
+    rGround * (walkKneeContact + runContactBend);
+  const lKnee =
+    kneeBase +
+    lSwing * lSwing * (walkKneeSwing + runKneePower) +
+    lGround * (walkKneeContact + runContactBend);
   const rFoot = -rLegSwing * 0.36 + rSwing * 0.22 * walkOnly + rLift * 0.46 * sprint - rGround * 0.24 * sprint;
   const lFoot = -lLegSwing * 0.36 + lSwing * 0.22 * walkOnly + lLift * 0.46 * sprint - lGround * 0.24 * sprint;
 
@@ -300,38 +313,38 @@ function updateCharacterAnimation(
     rLegSwing,
     0,
     0,
-    limbSmooth
+    legSmooth
   );
   setBone(vrm, "rightLowerLeg",
     rKnee,
     0,
     0,
-    limbSmooth
+    legSmooth
   );
   setBone(vrm, "rightFoot",
     rFoot,
     0,
     0,
-    limbSmooth
+    legSmooth
   );
 
   setBone(vrm, "leftUpperLeg",
     lLegSwing,
     0,
     0,
-    limbSmooth
+    legSmooth
   );
   setBone(vrm, "leftLowerLeg",
     lKnee,
     0,
     0,
-    limbSmooth
+    legSmooth
   );
   setBone(vrm, "leftFoot",
     lFoot,
     0,
     0,
-    limbSmooth
+    legSmooth
   );
 
   // Vertical bounce on root.
