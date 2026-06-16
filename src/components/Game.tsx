@@ -541,10 +541,29 @@ export default function Game() {
     rim.position.set(-30, 30, -40);
     scene.add(rim);
 
-    // Ground
+    // Ground — procedural canvas texture so we get visible detail without
+    // shipping a binary asset. Repeated tiling + anisotropy keeps it crisp.
+    const groundCanvas = document.createElement("canvas");
+    groundCanvas.width = 256;
+    groundCanvas.height = 256;
+    const gctx = groundCanvas.getContext("2d")!;
+    gctx.fillStyle = "#4a8f3a";
+    gctx.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 1800; i++) {
+      const x = Math.random() * 256;
+      const y = Math.random() * 256;
+      const v = 30 + Math.random() * 60;
+      gctx.fillStyle = `rgba(${30 + Math.random() * 40},${v + 40},${30 + Math.random() * 30},${0.25 + Math.random() * 0.35})`;
+      gctx.fillRect(x, y, 1 + Math.random() * 2, 1 + Math.random() * 2);
+    }
+    const groundTex = new THREE.CanvasTexture(groundCanvas);
+    groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping;
+    groundTex.repeat.set(WORLD_SIZE / 4, WORLD_SIZE / 4);
+    groundTex.colorSpace = THREE.SRGBColorSpace;
+    groundTex.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy?.() ?? 1, isMobileDevice ? 4 : 8);
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 32, 32),
-      new THREE.MeshStandardMaterial({ color: 0x4a8f3a })
+      new THREE.MeshStandardMaterial({ map: groundTex, roughness: 0.95, metalness: 0 })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
