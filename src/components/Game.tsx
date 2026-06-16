@@ -929,12 +929,23 @@ export default function Game() {
 
       // VRM update
       if (vrm) {
+        // Decide how strongly the FBX run animation drives the rig.
+        const speedNow = Math.hypot(playerState.vel.x, playerState.vel.z);
+        const runTarget = speedNow > 6.5 ? Math.min(1, (speedNow - 6.5) / 2.0) : 0;
+        if (runAction) {
+          const cur = runAction.getEffectiveWeight();
+          const next = lerp(cur, runTarget, Math.min(1, dt * 8));
+          runAction.setEffectiveWeight(next);
+        }
+        const runActive = !!runAction && runAction.getEffectiveWeight() > 0.85;
         updateCharacterAnimation(vrm, dt, {
-          speed: Math.hypot(playerState.vel.x, playerState.vel.z),
+          speed: speedNow,
           maxSpeed: 9,
           attackTimer,
           dead: playerState.dead,
+          runActive,
         });
+        if (mixer) mixer.update(dt);
         vrm.update(dt);
       }
 
