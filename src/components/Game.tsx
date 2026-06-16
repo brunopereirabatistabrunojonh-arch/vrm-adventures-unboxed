@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { VRMLoaderPlugin, VRMUtils, type VRM } from "@pixiv/three-vrm";
 import characterAsset from "@/assets/character.vrm.asset.json";
 import joggingAsset from "@/assets/Jogging.fbx.asset.json";
@@ -40,7 +41,7 @@ const animState = {
 // Cached secondary bones (hair, ears, tail-like) discovered once per VRM.
 const secondaryCache = new WeakMap<
   object,
-  { hair: THREE.Object3D[]; ears: THREE.Object3D[] }
+  { hair: THREE.Object3D[]; ears: THREE.Object3D[]; breasts: THREE.Object3D[] }
 >();
 
 function getSecondaryBones(vrm: VRM) {
@@ -49,21 +50,31 @@ function getSecondaryBones(vrm: VRM) {
   if (cached) return cached;
   const hair: THREE.Object3D[] = [];
   const ears: THREE.Object3D[] = [];
+  const breasts: THREE.Object3D[] = [];
   vrm.scene?.traverse((o) => {
     const n = (o.name || "").toLowerCase();
     if (!n) return;
     if (n.includes("hair")) hair.push(o);
     if (n.includes("ear") || n.includes("bunny") || n.includes("usagi")) ears.push(o);
+    if (
+      n.includes("breast") ||
+      n.includes("bust") ||
+      n.includes("mune") ||
+      n.includes("oppai") ||
+      n.includes("chichi") ||
+      n.includes("boob")
+    ) breasts.push(o);
   });
   // Store base rotations so we add on top, not overwrite.
-  [...hair, ...ears].forEach((o) => {
+  [...hair, ...ears, ...breasts].forEach((o) => {
     o.userData._baseRot = o.userData._baseRot ?? {
       x: o.rotation.x,
       y: o.rotation.y,
       z: o.rotation.z,
     };
+    o.userData._jiggle = o.userData._jiggle ?? { x: 0, vx: 0, y: 0, vy: 0, z: 0, vz: 0 };
   });
-  const entry = { hair, ears };
+  const entry = { hair, ears, breasts };
   secondaryCache.set(key, entry);
   return entry;
 }
