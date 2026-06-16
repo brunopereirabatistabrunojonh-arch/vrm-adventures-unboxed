@@ -3,6 +3,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils, type VRM } from "@pixiv/three-vrm";
 import characterAsset from "@/assets/character.vrm.asset.json";
+import joggingAsset from "@/assets/Jogging.fbx.asset.json";
+import { loadMixamoAnimation } from "@/lib/loadMixamoAnimation";
 
 type Enemy = {
   mesh: THREE.Mesh;
@@ -97,9 +99,9 @@ function setBone(
 function updateCharacterAnimation(
   vrm: VRM,
   dt: number,
-  opts: { speed: number; maxSpeed: number; attackTimer: number; dead: boolean }
+  opts: { speed: number; maxSpeed: number; attackTimer: number; dead: boolean; runActive?: boolean }
 ) {
-  const { speed, attackTimer, dead } = opts;
+  const { speed, attackTimer, dead, runActive } = opts;
 
   // --- Attack pose progression (windup → strike → recovery) ---
   const attackDur = 0.35;
@@ -153,6 +155,29 @@ function updateCharacterAnimation(
   const walkOnly = walk * (1 - run);
   const sprint = walk * run;
   const idle = Math.max(0, 1 - walk);
+
+  // When the FBX run clip drives the rig, skip every body bone the mixer owns
+  // so we don't fight it. Hair / ears / vertical bounce still run.
+  if (runActive) {
+    animState.t += dt * 2.4;
+    const t2 = animState.t;
+    const { hair, ears } = getSecondaryBones(vrm);
+    const swayAmp = 0.22;
+    const sideAmp = 0.14;
+    hair.forEach((h, i) => {
+      const b = h.userData._baseRot;
+      const phase = i * 0.25;
+      h.rotation.x = b.x + Math.sin(t2 * 1.6 + phase) * swayAmp;
+      h.rotation.z = b.z + Math.sin(t2 * 1.1 + phase) * sideAmp;
+    });
+    ears.forEach((e, i) => {
+      const b = e.userData._baseRot;
+      const sign = i % 2 === 0 ? 1 : -1;
+      e.rotation.x = b.x + Math.sin(t2 * 1.8) * 0.18;
+      e.rotation.z = b.z + sign * Math.sin(t2 * 1.3) * 0.1;
+    });
+    return;
+  }
 
   // --- Breathing & idle sway ---
   const breath = Math.sin(t * 0.9) * 0.04 * idle;       // chest up/down
@@ -501,6 +526,8 @@ export default function Game() {
     player.add(placeholder);
 
     let vrm: VRM | null = null;
+    let mixer: THREE.AnimationMixer | null = null;
+    let runAction: THREE.AnimationAction | null = null;
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
     loader.load(
@@ -536,6 +563,17 @@ export default function Game() {
         player.remove(placeholder);
         player.add(sceneRoot);
         if (loadedVrm) vrm = loadedVrm;
+        if (loadedVrm) {
+          loadMixamoAnimation(joggingAsset.url, loadedVrm)
+            .then((clip) => {
+              mixer = new THREE.AnimationMixer(loadedVrm.scene);
+              runAction = mixer.clipAction(clip);
+              runAction.play();
+              runAction.setEffectiveWeight(0);
+              console.log("[Game] Jogging clip ready", clip.duration);
+            })
+            .catch((err) => console.error("[Game] Jogging load failed", err));
+        }
         setLoading(false);
       },
       (xhr) => {
@@ -891,12 +929,23 @@ export default function Game() {
 
       // VRM update
       if (vrm) {
+        // Decide how strongly the FBX run animation drives the rig.
+        const speedNow = Math.hypot(playerState.vel.x, playerState.vel.z);
+        const runTarget = speedNow > 6.5 ? Math.min(1, (speedNow - 6.5) / 2.0) : 0;
+        if (runAction) {
+          const cur = runAction.getEffectiveWeight();
+          const next = lerp(cur, runTarget, Math.min(1, dt * 8));
+          runAction.setEffectiveWeight(next);
+        }
+        const runActive = !!runAction && runAction.getEffectiveWeight() > 0.85;
         updateCharacterAnimation(vrm, dt, {
-          speed: Math.hypot(playerState.vel.x, playerState.vel.z),
+          speed: speedNow,
           maxSpeed: 9,
           attackTimer,
           dead: playerState.dead,
+          runActive,
         });
+        if (mixer) mixer.update(dt);
         vrm.update(dt);
       }
 
