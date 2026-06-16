@@ -482,9 +482,13 @@ export default function Game() {
 
   useEffect(() => {
     const mount = mountRef.current!;
+    const isMobileDevice =
+      typeof navigator !== "undefined" &&
+      (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+        (typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches));
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87ceeb);
-    scene.fog = new THREE.Fog(0x87ceeb, 60, 180);
+    scene.background = new THREE.Color(0x9bc4e8);
+    scene.fog = new THREE.Fog(0xbcd9ef, 70, 200);
 
     const camera = new THREE.PerspectiveCamera(
       60,
@@ -493,25 +497,49 @@ export default function Game() {
       500
     );
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const renderer = new THREE.WebGLRenderer({
+      antialias: !isMobileDevice,
+      powerPreference: "high-performance",
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobileDevice ? 1.5 : 2));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = isMobileDevice ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
     mount.appendChild(renderer.domElement);
 
-    // Lights
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x444466, 0.9);
+    // Image-based lighting via a tiny procedural room — gives soft, realistic
+    // PBR ambient on metals/skin without downloading an HDRI.
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    pmrem.compileEquirectangularShader();
+    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = envTex;
+
+    // Three-point-ish lighting: warm sun key + cool sky fill + rim back light.
+    const hemi = new THREE.HemisphereLight(0xb8d8ff, 0x4a5a3a, 0.55);
     scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xffffff, 1.1);
-    sun.position.set(40, 60, 20);
+    const sun = new THREE.DirectionalLight(0xfff1d6, 2.2);
+    sun.position.set(40, 70, 25);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -80;
-    sun.shadow.camera.right = 80;
-    sun.shadow.camera.top = 80;
-    sun.shadow.camera.bottom = -80;
+    const shMap = isMobileDevice ? 1024 : 2048;
+    sun.shadow.mapSize.set(shMap, shMap);
+    // Tighter shadow camera = sharper, less aliased shadows around the player.
+    const shR = isMobileDevice ? 30 : 60;
+    sun.shadow.camera.left = -shR;
+    sun.shadow.camera.right = shR;
+    sun.shadow.camera.top = shR;
+    sun.shadow.camera.bottom = -shR;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 200;
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.04;
+    sun.shadow.radius = isMobileDevice ? 1 : 3;
     scene.add(sun);
+    const rim = new THREE.DirectionalLight(0xa8c8ff, 0.6);
+    rim.position.set(-30, 30, -40);
+    scene.add(rim);
 
     // Ground
     const ground = new THREE.Mesh(
