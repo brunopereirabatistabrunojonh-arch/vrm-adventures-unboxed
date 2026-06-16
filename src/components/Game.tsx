@@ -172,20 +172,31 @@ function updateCharacterAnimation(
   if (runActive) {
     animState.t += dt * 2.4;
     const t2 = animState.t;
-    const { hair, ears } = getSecondaryBones(vrm);
+    const { hair, ears, breasts } = getSecondaryBones(vrm);
+    const hasSprings = !!(vrm as unknown as { springBoneManager?: { joints?: { size?: number } } })
+      .springBoneManager?.joints?.size;
     const swayAmp = 0.22;
     const sideAmp = 0.14;
-    hair.forEach((h, i) => {
-      const b = h.userData._baseRot;
-      const phase = i * 0.25;
-      h.rotation.x = b.x + Math.sin(t2 * 1.6 + phase) * swayAmp;
-      h.rotation.z = b.z + Math.sin(t2 * 1.1 + phase) * sideAmp;
-    });
+    if (!hasSprings) {
+      hair.forEach((h, i) => {
+        const b = h.userData._baseRot;
+        const phase = i * 0.25;
+        h.rotation.x = b.x + Math.sin(t2 * 1.6 + phase) * swayAmp;
+        h.rotation.z = b.z + Math.sin(t2 * 1.1 + phase) * sideAmp;
+      });
+    }
     ears.forEach((e, i) => {
       const b = e.userData._baseRot;
       const sign = i % 2 === 0 ? 1 : -1;
       e.rotation.x = b.x + Math.sin(t2 * 1.8) * 0.18;
       e.rotation.z = b.z + sign * Math.sin(t2 * 1.3) * 0.1;
+    });
+    // Bust jiggle while sprinting — driven by vertical bounce frequency.
+    updateBustJiggle(breasts, dt, {
+      driveY: Math.sin(t2 * 2.0) * 0.35,
+      driveX: Math.sin(t2 * 1.0) * 0.18,
+      stiffness: 38,
+      damping: 5.2,
     });
     return;
   }
@@ -382,16 +393,20 @@ function updateCharacterAnimation(
   // --- Secondary motion: hair + bunny ears (procedural follow) ---
   // Real VRM spring bones (if present) animate via vrm.update(); this layer
   // adds a guaranteed gentle sway even when no spring rig is authored.
-  const { hair, ears } = getSecondaryBones(vrm);
+  const { hair, ears, breasts } = getSecondaryBones(vrm);
+  const hasSprings = !!(vrm as unknown as { springBoneManager?: { joints?: { size?: number } } })
+    .springBoneManager?.joints?.size;
   const swayAmp = 0.05 + walkOnly * 0.08 + sprint * 0.2;
   const hairWave = Math.sin(t * 0.9 - 0.4) * swayAmp + vertical * 0.8;
   const hairSide = Math.sin(legPhase * 0.5 - 0.6) * (0.04 + walkOnly * 0.05 + sprint * 0.12);
-  hair.forEach((h, i) => {
-    const b = h.userData._baseRot;
-    const phase = i * 0.25;
-    h.rotation.x = b.x + Math.sin(t * 0.9 + phase) * swayAmp * 0.65 + hairWave * 0.45;
-    h.rotation.z = b.z + hairSide + Math.sin(t * 0.7 + phase) * (0.02 + sprint * 0.04);
-  });
+  if (!hasSprings) {
+    hair.forEach((h, i) => {
+      const b = h.userData._baseRot;
+      const phase = i * 0.25;
+      h.rotation.x = b.x + Math.sin(t * 0.9 + phase) * swayAmp * 0.65 + hairWave * 0.45;
+      h.rotation.z = b.z + hairSide + Math.sin(t * 0.7 + phase) * (0.02 + sprint * 0.04);
+    });
+  }
   const earWobble = Math.sin(t * 1.4) * (0.03 + walkOnly * 0.04 + sprint * 0.12) + vertical * (0.6 + sprint * 0.7);
   ears.forEach((e, i) => {
     const b = e.userData._baseRot;
@@ -400,9 +415,51 @@ function updateCharacterAnimation(
     e.rotation.z = b.z + sign * Math.sin(t * 1.1) * (0.02 + sprint * 0.08);
   });
 
+  // --- Bust jiggle (spring-damper) — reacts to vertical bounce + breathing ---
+  // Drive grows with locomotion intensity; breathing keeps subtle motion on idle.
+  const bustDriveY = vertical * (1.6 + sprint * 1.4) + breath * 0.5;
+  const bustDriveX = hipSwayLateral * 0.35;
+  updateBustJiggle(breasts, dt, {
+    driveY: bustDriveY,
+    driveX: bustDriveX,
+    stiffness: 32 + sprint * 14,
+    damping: 5.5,
+  });
+
   if (dead) {
     // Collapse: tilt forward
     setBone(vrm, "hips", 1.4, 0, 0, 0.15);
+  }
+}
+
+// Critically-damped-ish spring solver for bust bones. Applied as small Euler
+// offsets on top of the rest pose so it never breaks the rig orientation.
+function updateBustJiggle(
+  bones: THREE.Object3D[],
+  dt: number,
+  opts: { driveY: number; driveX: number; stiffness: number; damping: number }
+) {
+  if (!bones.length) return;
+  const { driveY, driveX, stiffness, damping } = opts;
+  // Sub-step for stability when framerate dips.
+  const sub = 2;
+  const h = Math.min(dt, 0.033) / sub;
+  for (const b of bones) {
+    const base = b.userData._baseRot as { x: number; y: number; z: number };
+    const s = b.userData._jiggle as { x: number; vx: number; y: number; vy: number; z: number; vz: number };
+    const tx = driveY;       // bounce → pitch (X)
+    const tz = driveX;       // sway → roll (Z)
+    for (let i = 0; i < sub; i++) {
+      const ax = -stiffness * (s.x - tx) - damping * s.vx;
+      const az = -stiffness * (s.z - tz) - damping * s.vz;
+      s.vx += ax * h; s.x += s.vx * h;
+      s.vz += az * h; s.z += s.vz * h;
+    }
+    // Clamp so it never deforms into the body.
+    const cx = Math.max(-0.35, Math.min(0.35, s.x));
+    const cz = Math.max(-0.25, Math.min(0.25, s.z));
+    b.rotation.x = base.x + cx;
+    b.rotation.z = base.z + cz;
   }
 }
 
