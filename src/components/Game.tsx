@@ -642,6 +642,34 @@ export default function Game() {
           o.castShadow = true;
           o.frustumCulled = false;
         });
+        // Texture quality pass — anisotropy + correct color space on base maps.
+        const maxAniso = renderer.capabilities.getMaxAnisotropy?.() ?? 1;
+        const targetAniso = Math.min(maxAniso, isMobileDevice ? 4 : 8);
+        sceneRoot.traverse((o) => {
+          const m = (o as THREE.Mesh).material as
+            | THREE.Material
+            | THREE.Material[]
+            | undefined;
+          if (!m) return;
+          const mats = Array.isArray(m) ? m : [m];
+          for (const mat of mats) {
+            const anyMat = mat as unknown as Record<string, THREE.Texture | undefined>;
+            for (const slot of ["map", "emissiveMap", "matcapTexture", "shadeMultiplyTexture"] as const) {
+              const tex = anyMat[slot];
+              if (tex && (tex as THREE.Texture).isTexture) {
+                tex.anisotropy = targetAniso;
+                tex.colorSpace = THREE.SRGBColorSpace;
+                tex.needsUpdate = true;
+              }
+            }
+            for (const slot of ["normalMap", "roughnessMap", "metalnessMap", "aoMap"] as const) {
+              const tex = anyMat[slot];
+              if (tex && (tex as THREE.Texture).isTexture) {
+                tex.anisotropy = targetAniso;
+              }
+            }
+          }
+        });
         // Compute bounding box to auto-scale & ground the model
         const box = new THREE.Box3().setFromObject(sceneRoot);
         const size = new THREE.Vector3();
