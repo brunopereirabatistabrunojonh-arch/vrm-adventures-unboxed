@@ -99,9 +99,9 @@ function setBone(
 function updateCharacterAnimation(
   vrm: VRM,
   dt: number,
-  opts: { speed: number; maxSpeed: number; attackTimer: number; dead: boolean }
+  opts: { speed: number; maxSpeed: number; attackTimer: number; dead: boolean; runActive?: boolean }
 ) {
-  const { speed, attackTimer, dead } = opts;
+  const { speed, attackTimer, dead, runActive } = opts;
 
   // --- Attack pose progression (windup → strike → recovery) ---
   const attackDur = 0.35;
@@ -155,6 +155,29 @@ function updateCharacterAnimation(
   const walkOnly = walk * (1 - run);
   const sprint = walk * run;
   const idle = Math.max(0, 1 - walk);
+
+  // When the FBX run clip drives the rig, skip every body bone the mixer owns
+  // so we don't fight it. Hair / ears / vertical bounce still run.
+  if (runActive) {
+    animState.t += dt * 2.4;
+    const t2 = animState.t;
+    const { hair, ears } = getSecondaryBones(vrm);
+    const swayAmp = 0.22;
+    const sideAmp = 0.14;
+    hair.forEach((h, i) => {
+      const b = h.userData._baseRot;
+      const phase = i * 0.25;
+      h.rotation.x = b.x + Math.sin(t2 * 1.6 + phase) * swayAmp;
+      h.rotation.z = b.z + Math.sin(t2 * 1.1 + phase) * sideAmp;
+    });
+    ears.forEach((e, i) => {
+      const b = e.userData._baseRot;
+      const sign = i % 2 === 0 ? 1 : -1;
+      e.rotation.x = b.x + Math.sin(t2 * 1.8) * 0.18;
+      e.rotation.z = b.z + sign * Math.sin(t2 * 1.3) * 0.1;
+    });
+    return;
+  }
 
   // --- Breathing & idle sway ---
   const breath = Math.sin(t * 0.9) * 0.04 * idle;       // chest up/down
