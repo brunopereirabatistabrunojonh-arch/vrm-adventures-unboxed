@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { VRMLoaderPlugin, VRMUtils, type VRM } from "@pixiv/three-vrm";
 import characterAsset from "@/assets/character.vrm.asset.json";
 import joggingAsset from "@/assets/Jogging.fbx.asset.json";
@@ -40,7 +41,7 @@ const animState = {
 // Cached secondary bones (hair, ears, tail-like) discovered once per VRM.
 const secondaryCache = new WeakMap<
   object,
-  { hair: THREE.Object3D[]; ears: THREE.Object3D[] }
+  { hair: THREE.Object3D[]; ears: THREE.Object3D[]; breasts: THREE.Object3D[] }
 >();
 
 function getSecondaryBones(vrm: VRM) {
@@ -49,21 +50,31 @@ function getSecondaryBones(vrm: VRM) {
   if (cached) return cached;
   const hair: THREE.Object3D[] = [];
   const ears: THREE.Object3D[] = [];
+  const breasts: THREE.Object3D[] = [];
   vrm.scene?.traverse((o) => {
     const n = (o.name || "").toLowerCase();
     if (!n) return;
     if (n.includes("hair")) hair.push(o);
     if (n.includes("ear") || n.includes("bunny") || n.includes("usagi")) ears.push(o);
+    if (
+      n.includes("breast") ||
+      n.includes("bust") ||
+      n.includes("mune") ||
+      n.includes("oppai") ||
+      n.includes("chichi") ||
+      n.includes("boob")
+    ) breasts.push(o);
   });
   // Store base rotations so we add on top, not overwrite.
-  [...hair, ...ears].forEach((o) => {
+  [...hair, ...ears, ...breasts].forEach((o) => {
     o.userData._baseRot = o.userData._baseRot ?? {
       x: o.rotation.x,
       y: o.rotation.y,
       z: o.rotation.z,
     };
+    o.userData._jiggle = o.userData._jiggle ?? { x: 0, vx: 0, y: 0, vy: 0, z: 0, vz: 0 };
   });
-  const entry = { hair, ears };
+  const entry = { hair, ears, breasts };
   secondaryCache.set(key, entry);
   return entry;
 }
@@ -161,20 +172,31 @@ function updateCharacterAnimation(
   if (runActive) {
     animState.t += dt * 2.4;
     const t2 = animState.t;
-    const { hair, ears } = getSecondaryBones(vrm);
+    const { hair, ears, breasts } = getSecondaryBones(vrm);
+    const hasSprings = !!(vrm as unknown as { springBoneManager?: { joints?: { size?: number } } })
+      .springBoneManager?.joints?.size;
     const swayAmp = 0.22;
     const sideAmp = 0.14;
-    hair.forEach((h, i) => {
-      const b = h.userData._baseRot;
-      const phase = i * 0.25;
-      h.rotation.x = b.x + Math.sin(t2 * 1.6 + phase) * swayAmp;
-      h.rotation.z = b.z + Math.sin(t2 * 1.1 + phase) * sideAmp;
-    });
+    if (!hasSprings) {
+      hair.forEach((h, i) => {
+        const b = h.userData._baseRot;
+        const phase = i * 0.25;
+        h.rotation.x = b.x + Math.sin(t2 * 1.6 + phase) * swayAmp;
+        h.rotation.z = b.z + Math.sin(t2 * 1.1 + phase) * sideAmp;
+      });
+    }
     ears.forEach((e, i) => {
       const b = e.userData._baseRot;
       const sign = i % 2 === 0 ? 1 : -1;
       e.rotation.x = b.x + Math.sin(t2 * 1.8) * 0.18;
       e.rotation.z = b.z + sign * Math.sin(t2 * 1.3) * 0.1;
+    });
+    // Bust jiggle while sprinting — driven by vertical bounce frequency.
+    updateBustJiggle(breasts, dt, {
+      driveY: Math.sin(t2 * 2.0) * 0.35,
+      driveX: Math.sin(t2 * 1.0) * 0.18,
+      stiffness: 38,
+      damping: 5.2,
     });
     return;
   }
@@ -371,16 +393,20 @@ function updateCharacterAnimation(
   // --- Secondary motion: hair + bunny ears (procedural follow) ---
   // Real VRM spring bones (if present) animate via vrm.update(); this layer
   // adds a guaranteed gentle sway even when no spring rig is authored.
-  const { hair, ears } = getSecondaryBones(vrm);
+  const { hair, ears, breasts } = getSecondaryBones(vrm);
+  const hasSprings = !!(vrm as unknown as { springBoneManager?: { joints?: { size?: number } } })
+    .springBoneManager?.joints?.size;
   const swayAmp = 0.05 + walkOnly * 0.08 + sprint * 0.2;
   const hairWave = Math.sin(t * 0.9 - 0.4) * swayAmp + vertical * 0.8;
   const hairSide = Math.sin(legPhase * 0.5 - 0.6) * (0.04 + walkOnly * 0.05 + sprint * 0.12);
-  hair.forEach((h, i) => {
-    const b = h.userData._baseRot;
-    const phase = i * 0.25;
-    h.rotation.x = b.x + Math.sin(t * 0.9 + phase) * swayAmp * 0.65 + hairWave * 0.45;
-    h.rotation.z = b.z + hairSide + Math.sin(t * 0.7 + phase) * (0.02 + sprint * 0.04);
-  });
+  if (!hasSprings) {
+    hair.forEach((h, i) => {
+      const b = h.userData._baseRot;
+      const phase = i * 0.25;
+      h.rotation.x = b.x + Math.sin(t * 0.9 + phase) * swayAmp * 0.65 + hairWave * 0.45;
+      h.rotation.z = b.z + hairSide + Math.sin(t * 0.7 + phase) * (0.02 + sprint * 0.04);
+    });
+  }
   const earWobble = Math.sin(t * 1.4) * (0.03 + walkOnly * 0.04 + sprint * 0.12) + vertical * (0.6 + sprint * 0.7);
   ears.forEach((e, i) => {
     const b = e.userData._baseRot;
@@ -389,9 +415,51 @@ function updateCharacterAnimation(
     e.rotation.z = b.z + sign * Math.sin(t * 1.1) * (0.02 + sprint * 0.08);
   });
 
+  // --- Bust jiggle (spring-damper) — reacts to vertical bounce + breathing ---
+  // Drive grows with locomotion intensity; breathing keeps subtle motion on idle.
+  const bustDriveY = vertical * (1.6 + sprint * 1.4) + breath * 0.5;
+  const bustDriveX = hipSwayLateral * 0.35;
+  updateBustJiggle(breasts, dt, {
+    driveY: bustDriveY,
+    driveX: bustDriveX,
+    stiffness: 32 + sprint * 14,
+    damping: 5.5,
+  });
+
   if (dead) {
     // Collapse: tilt forward
     setBone(vrm, "hips", 1.4, 0, 0, 0.15);
+  }
+}
+
+// Critically-damped-ish spring solver for bust bones. Applied as small Euler
+// offsets on top of the rest pose so it never breaks the rig orientation.
+function updateBustJiggle(
+  bones: THREE.Object3D[],
+  dt: number,
+  opts: { driveY: number; driveX: number; stiffness: number; damping: number }
+) {
+  if (!bones.length) return;
+  const { driveY, driveX, stiffness, damping } = opts;
+  // Sub-step for stability when framerate dips.
+  const sub = 2;
+  const h = Math.min(dt, 0.033) / sub;
+  for (const b of bones) {
+    const base = b.userData._baseRot as { x: number; y: number; z: number };
+    const s = b.userData._jiggle as { x: number; vx: number; y: number; vy: number; z: number; vz: number };
+    const tx = driveY;       // bounce → pitch (X)
+    const tz = driveX;       // sway → roll (Z)
+    for (let i = 0; i < sub; i++) {
+      const ax = -stiffness * (s.x - tx) - damping * s.vx;
+      const az = -stiffness * (s.z - tz) - damping * s.vz;
+      s.vx += ax * h; s.x += s.vx * h;
+      s.vz += az * h; s.z += s.vz * h;
+    }
+    // Clamp so it never deforms into the body.
+    const cx = Math.max(-0.35, Math.min(0.35, s.x));
+    const cz = Math.max(-0.25, Math.min(0.25, s.z));
+    b.rotation.x = base.x + cx;
+    b.rotation.z = base.z + cz;
   }
 }
 
@@ -414,9 +482,13 @@ export default function Game() {
 
   useEffect(() => {
     const mount = mountRef.current!;
+    const isMobileDevice =
+      typeof navigator !== "undefined" &&
+      (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+        (typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches));
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87ceeb);
-    scene.fog = new THREE.Fog(0x87ceeb, 60, 180);
+    scene.background = new THREE.Color(0x9bc4e8);
+    scene.fog = new THREE.Fog(0xbcd9ef, 70, 200);
 
     const camera = new THREE.PerspectiveCamera(
       60,
@@ -425,30 +497,73 @@ export default function Game() {
       500
     );
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const renderer = new THREE.WebGLRenderer({
+      antialias: !isMobileDevice,
+      powerPreference: "high-performance",
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobileDevice ? 1.5 : 2));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = isMobileDevice ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
     mount.appendChild(renderer.domElement);
 
-    // Lights
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x444466, 0.9);
-    scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xffffff, 1.1);
-    sun.position.set(40, 60, 20);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -80;
-    sun.shadow.camera.right = 80;
-    sun.shadow.camera.top = 80;
-    sun.shadow.camera.bottom = -80;
-    scene.add(sun);
+    // Image-based lighting via a tiny procedural room — gives soft, realistic
+    // PBR ambient on metals/skin without downloading an HDRI.
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    pmrem.compileEquirectangularShader();
+    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = envTex;
 
-    // Ground
+    // Three-point-ish lighting: warm sun key + cool sky fill + rim back light.
+    const hemi = new THREE.HemisphereLight(0xb8d8ff, 0x4a5a3a, 0.55);
+    scene.add(hemi);
+    const sun = new THREE.DirectionalLight(0xfff1d6, 2.2);
+    sun.position.set(40, 70, 25);
+    sun.castShadow = true;
+    const shMap = isMobileDevice ? 1024 : 2048;
+    sun.shadow.mapSize.set(shMap, shMap);
+    // Tighter shadow camera = sharper, less aliased shadows around the player.
+    const shR = isMobileDevice ? 30 : 60;
+    sun.shadow.camera.left = -shR;
+    sun.shadow.camera.right = shR;
+    sun.shadow.camera.top = shR;
+    sun.shadow.camera.bottom = -shR;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 200;
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.04;
+    sun.shadow.radius = isMobileDevice ? 1 : 3;
+    scene.add(sun);
+    const rim = new THREE.DirectionalLight(0xa8c8ff, 0.6);
+    rim.position.set(-30, 30, -40);
+    scene.add(rim);
+
+    // Ground — procedural canvas texture so we get visible detail without
+    // shipping a binary asset. Repeated tiling + anisotropy keeps it crisp.
+    const groundCanvas = document.createElement("canvas");
+    groundCanvas.width = 256;
+    groundCanvas.height = 256;
+    const gctx = groundCanvas.getContext("2d")!;
+    gctx.fillStyle = "#4a8f3a";
+    gctx.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 1800; i++) {
+      const x = Math.random() * 256;
+      const y = Math.random() * 256;
+      const v = 30 + Math.random() * 60;
+      gctx.fillStyle = `rgba(${30 + Math.random() * 40},${v + 40},${30 + Math.random() * 30},${0.25 + Math.random() * 0.35})`;
+      gctx.fillRect(x, y, 1 + Math.random() * 2, 1 + Math.random() * 2);
+    }
+    const groundTex = new THREE.CanvasTexture(groundCanvas);
+    groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping;
+    groundTex.repeat.set(WORLD_SIZE / 4, WORLD_SIZE / 4);
+    groundTex.colorSpace = THREE.SRGBColorSpace;
+    groundTex.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy?.() ?? 1, isMobileDevice ? 4 : 8);
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 32, 32),
-      new THREE.MeshStandardMaterial({ color: 0x4a8f3a })
+      new THREE.MeshStandardMaterial({ map: groundTex, roughness: 0.95, metalness: 0 })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
@@ -545,6 +660,34 @@ export default function Game() {
         sceneRoot.traverse((o) => {
           o.castShadow = true;
           o.frustumCulled = false;
+        });
+        // Texture quality pass — anisotropy + correct color space on base maps.
+        const maxAniso = renderer.capabilities.getMaxAnisotropy?.() ?? 1;
+        const targetAniso = Math.min(maxAniso, isMobileDevice ? 4 : 8);
+        sceneRoot.traverse((o) => {
+          const m = (o as THREE.Mesh).material as
+            | THREE.Material
+            | THREE.Material[]
+            | undefined;
+          if (!m) return;
+          const mats = Array.isArray(m) ? m : [m];
+          for (const mat of mats) {
+            const anyMat = mat as unknown as Record<string, THREE.Texture | undefined>;
+            for (const slot of ["map", "emissiveMap", "matcapTexture", "shadeMultiplyTexture"] as const) {
+              const tex = anyMat[slot];
+              if (tex && (tex as THREE.Texture).isTexture) {
+                tex.anisotropy = targetAniso;
+                tex.colorSpace = THREE.SRGBColorSpace;
+                tex.needsUpdate = true;
+              }
+            }
+            for (const slot of ["normalMap", "roughnessMap", "metalnessMap", "aoMap"] as const) {
+              const tex = anyMat[slot];
+              if (tex && (tex as THREE.Texture).isTexture) {
+                tex.anisotropy = targetAniso;
+              }
+            }
+          }
         });
         // Compute bounding box to auto-scale & ground the model
         const box = new THREE.Box3().setFromObject(sceneRoot);
@@ -973,6 +1116,8 @@ export default function Game() {
       renderer.domElement.removeEventListener("touchend", onTouchEnd);
       renderer.domElement.removeEventListener("touchcancel", onTouchEnd);
       renderer.dispose();
+      envTex.dispose();
+      pmrem.dispose();
       if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
     };
   }, []);
