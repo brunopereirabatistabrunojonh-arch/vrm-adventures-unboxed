@@ -1097,6 +1097,8 @@ export default function Game() {
       renderer.domElement.removeEventListener("touchend", onTouchEnd);
       renderer.domElement.removeEventListener("touchcancel", onTouchEnd);
       renderer.dispose();
+      envTex.dispose();
+      pmrem.dispose();
       if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
     };
   }, []);
