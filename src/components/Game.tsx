@@ -4,6 +4,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils, type VRM } from "@pixiv/three-vrm";
 import characterAsset from "@/assets/character.vrm.asset.json";
 import joggingAsset from "@/assets/Jogging.fbx.asset.json";
+import walkingAsset from "@/assets/Walking.fbx.asset.json";
 import { loadMixamoAnimation } from "@/lib/loadMixamoAnimation";
 
 type Enemy = {
