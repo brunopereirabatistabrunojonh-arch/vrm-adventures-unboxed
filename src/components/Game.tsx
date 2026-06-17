@@ -942,21 +942,30 @@ export default function Game() {
       if (vrm) {
         // Decide how strongly the FBX run animation drives the rig.
         const speedNow = Math.hypot(playerState.vel.x, playerState.vel.z);
-        const runTargetRaw = speedNow > 6.5 ? Math.min(1, (speedNow - 6.5) / 2.0) : 0;
-        const walkTargetRaw = speedNow > 0.4 ? Math.min(1, (speedNow - 0.4) / 1.2) : 0;
-        const runTarget = runTargetRaw;
-        const walkTarget = walkTargetRaw * (1 - runTarget);
+        // Binary targets crossfaded fast — prevents partial blends with the
+        // procedural fallback that caused stuttering ("travando").
+        const moving = speedNow > 0.5;
+        const sprinting = speedNow > 6.5;
+        const runTarget = sprinting ? 1 : 0;
+        const walkTarget = moving && !sprinting ? 1 : 0;
+        const blendK = Math.min(1, dt * 10);
         if (runAction) {
-          const cur = runAction.getEffectiveWeight();
-          runAction.setEffectiveWeight(lerp(cur, runTarget, Math.min(1, dt * 8)));
+          runAction.setEffectiveTimeScale(1);
+          runAction.setEffectiveWeight(
+            lerp(runAction.getEffectiveWeight(), runTarget, blendK)
+          );
         }
         if (walkAction) {
-          const cur = walkAction.getEffectiveWeight();
-          walkAction.setEffectiveWeight(lerp(cur, walkTarget, Math.min(1, dt * 8)));
+          walkAction.setEffectiveTimeScale(1);
+          walkAction.setEffectiveWeight(
+            lerp(walkAction.getEffectiveWeight(), walkTarget, blendK)
+          );
         }
         const totalClipWeight =
           (runAction?.getEffectiveWeight() ?? 0) + (walkAction?.getEffectiveWeight() ?? 0);
-        const runActive = totalClipWeight > 0.85;
+        // As soon as a clip contributes meaningfully, let it own the body bones
+        // so procedural leg/arm code doesn't fight it.
+        const runActive = totalClipWeight > 0.25;
         updateCharacterAnimation(vrm, dt, {
           speed: speedNow,
           maxSpeed: 9,
