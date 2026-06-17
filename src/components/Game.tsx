@@ -4,6 +4,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils, type VRM } from "@pixiv/three-vrm";
 import characterAsset from "@/assets/character.vrm.asset.json";
 import joggingAsset from "@/assets/Jogging.fbx.asset.json";
+import walkingAsset from "@/assets/Walking.fbx.asset.json";
 import { loadMixamoAnimation } from "@/lib/loadMixamoAnimation";
 
 type Enemy = {
@@ -528,6 +529,7 @@ export default function Game() {
     let vrm: VRM | null = null;
     let mixer: THREE.AnimationMixer | null = null;
     let runAction: THREE.AnimationAction | null = null;
+    let walkAction: THREE.AnimationAction | null = null;
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
     loader.load(
@@ -573,6 +575,15 @@ export default function Game() {
               console.log("[Game] Jogging clip ready", clip.duration);
             })
             .catch((err) => console.error("[Game] Jogging load failed", err));
+          loadMixamoAnimation(walkingAsset.url, loadedVrm)
+            .then((clip) => {
+              if (!mixer) mixer = new THREE.AnimationMixer(loadedVrm.scene);
+              walkAction = mixer.clipAction(clip);
+              walkAction.play();
+              walkAction.setEffectiveWeight(0);
+              console.log("[Game] Walking clip ready", clip.duration);
+            })
+            .catch((err) => console.error("[Game] Walking load failed", err));
         }
         setLoading(false);
       },
@@ -931,13 +942,21 @@ export default function Game() {
       if (vrm) {
         // Decide how strongly the FBX run animation drives the rig.
         const speedNow = Math.hypot(playerState.vel.x, playerState.vel.z);
-        const runTarget = speedNow > 6.5 ? Math.min(1, (speedNow - 6.5) / 2.0) : 0;
+        const runTargetRaw = speedNow > 6.5 ? Math.min(1, (speedNow - 6.5) / 2.0) : 0;
+        const walkTargetRaw = speedNow > 0.4 ? Math.min(1, (speedNow - 0.4) / 1.2) : 0;
+        const runTarget = runTargetRaw;
+        const walkTarget = walkTargetRaw * (1 - runTarget);
         if (runAction) {
           const cur = runAction.getEffectiveWeight();
-          const next = lerp(cur, runTarget, Math.min(1, dt * 8));
-          runAction.setEffectiveWeight(next);
+          runAction.setEffectiveWeight(lerp(cur, runTarget, Math.min(1, dt * 8)));
         }
-        const runActive = !!runAction && runAction.getEffectiveWeight() > 0.85;
+        if (walkAction) {
+          const cur = walkAction.getEffectiveWeight();
+          walkAction.setEffectiveWeight(lerp(cur, walkTarget, Math.min(1, dt * 8)));
+        }
+        const totalClipWeight =
+          (runAction?.getEffectiveWeight() ?? 0) + (walkAction?.getEffectiveWeight() ?? 0);
+        const runActive = totalClipWeight > 0.85;
         updateCharacterAnimation(vrm, dt, {
           speed: speedNow,
           maxSpeed: 9,
