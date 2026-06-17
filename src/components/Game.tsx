@@ -953,28 +953,26 @@ export default function Game() {
         const speedNow = Math.hypot(playerState.vel.x, playerState.vel.z);
         // Binary targets crossfaded fast — prevents partial blends with the
         // procedural fallback that caused stuttering ("travando").
-        const moving = speedNow > 0.5;
+        const moving = speedNow > 0.4;
         const sprinting = speedNow > 6.5;
         const runTarget = sprinting ? 1 : 0;
         const walkTarget = moving && !sprinting ? 1 : 0;
-        const blendK = Math.min(1, dt * 10);
+        const blendK = Math.min(1, dt * 12);
         if (runAction) {
-          runAction.setEffectiveTimeScale(1);
-          runAction.setEffectiveWeight(
-            lerp(runAction.getEffectiveWeight(), runTarget, blendK)
-          );
+          runAction.enabled = true;
+          runAction.paused = false;
+          runAction.timeScale = 1;
+          runAction.weight = lerp(runAction.weight, runTarget, blendK);
         }
         if (walkAction) {
-          walkAction.setEffectiveTimeScale(1);
-          walkAction.setEffectiveWeight(
-            lerp(walkAction.getEffectiveWeight(), walkTarget, blendK)
-          );
+          walkAction.enabled = true;
+          walkAction.paused = false;
+          walkAction.timeScale = 1;
+          walkAction.weight = lerp(walkAction.weight, walkTarget, blendK);
         }
-        const totalClipWeight =
-          (runAction?.getEffectiveWeight() ?? 0) + (walkAction?.getEffectiveWeight() ?? 0);
-        // As soon as a clip contributes meaningfully, let it own the body bones
-        // so procedural leg/arm code doesn't fight it.
-        const runActive = totalClipWeight > 0.25;
+        // Hand the body bones to the clip as soon as the player moves so the
+        // procedural fallback doesn't fight the blend-in and cause stutter.
+        const runActive = moving || (runAction?.weight ?? 0) > 0.05 || (walkAction?.weight ?? 0) > 0.05;
         updateCharacterAnimation(vrm, dt, {
           speed: speedNow,
           maxSpeed: 9,
