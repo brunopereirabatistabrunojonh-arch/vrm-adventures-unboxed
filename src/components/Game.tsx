@@ -529,6 +529,7 @@ export default function Game() {
     let vrm: VRM | null = null;
     let mixer: THREE.AnimationMixer | null = null;
     let runAction: THREE.AnimationAction | null = null;
+    let walkAction: THREE.AnimationAction | null = null;
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
     loader.load(
@@ -574,6 +575,15 @@ export default function Game() {
               console.log("[Game] Jogging clip ready", clip.duration);
             })
             .catch((err) => console.error("[Game] Jogging load failed", err));
+          loadMixamoAnimation(walkingAsset.url, loadedVrm)
+            .then((clip) => {
+              if (!mixer) mixer = new THREE.AnimationMixer(loadedVrm.scene);
+              walkAction = mixer.clipAction(clip);
+              walkAction.play();
+              walkAction.setEffectiveWeight(0);
+              console.log("[Game] Walking clip ready", clip.duration);
+            })
+            .catch((err) => console.error("[Game] Walking load failed", err));
         }
         setLoading(false);
       },
