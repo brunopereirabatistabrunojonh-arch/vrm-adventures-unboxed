@@ -115,19 +115,11 @@ export async function loadMixamoAnimation(url: string, vrm: VRM): Promise<THREE.
         }
       }
       tracks.push(new THREE.QuaternionKeyframeTrack(`${vrmNode.name}.${propertyName}`, track.times.slice(), values));
-    } else if (track instanceof THREE.VectorKeyframeTrack && vrmBoneName === "hips") {
-      // Keep only vertical bounce; strip horizontal so the game owns position.
-      const values = new Float32Array(track.values.length);
-      for (let i = 0; i < values.length; i += 3) {
-        const x = 0;
-        const y = track.values[i + 1] * hipsPositionScale;
-        const z = 0;
-        values[i] = isVRM0 ? -x : x;
-        values[i + 1] = y;
-        values[i + 2] = isVRM0 ? -z : z;
-      }
-      tracks.push(new THREE.VectorKeyframeTrack(`${vrmNode.name}.${propertyName}`, track.times.slice(), values));
     }
+    // Hips translation tracks are intentionally dropped:
+    //  - horizontal: the game owns world movement
+    //  - vertical: the rest-pose hip height already plants the feet at y=0;
+    //    re-adding the FBX bounce makes feet clip through the floor.
   });
 
   return new THREE.AnimationClip("vrmRun", clip.duration, tracks);

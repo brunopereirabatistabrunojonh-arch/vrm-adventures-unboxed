@@ -566,21 +566,30 @@ export default function Game() {
         player.add(sceneRoot);
         if (loadedVrm) vrm = loadedVrm;
         if (loadedVrm) {
+          // Single shared mixer — created up front to avoid a race where the
+          // walk and run callbacks each construct one and orphan the other.
+          mixer = new THREE.AnimationMixer(loadedVrm.scene);
           loadMixamoAnimation(joggingAsset.url, loadedVrm)
             .then((clip) => {
-              mixer = new THREE.AnimationMixer(loadedVrm.scene);
-              runAction = mixer.clipAction(clip);
-              runAction.play();
+              clip.name = "vrmJog";
+              runAction = mixer!.clipAction(clip);
+              runAction.setLoop(THREE.LoopRepeat, Infinity);
+              runAction.clampWhenFinished = false;
+              runAction.enabled = true;
               runAction.setEffectiveWeight(0);
+              runAction.play();
               console.log("[Game] Jogging clip ready", clip.duration);
             })
             .catch((err) => console.error("[Game] Jogging load failed", err));
           loadMixamoAnimation(walkingAsset.url, loadedVrm)
             .then((clip) => {
-              if (!mixer) mixer = new THREE.AnimationMixer(loadedVrm.scene);
-              walkAction = mixer.clipAction(clip);
-              walkAction.play();
+              clip.name = "vrmWalk";
+              walkAction = mixer!.clipAction(clip);
+              walkAction.setLoop(THREE.LoopRepeat, Infinity);
+              walkAction.clampWhenFinished = false;
+              walkAction.enabled = true;
               walkAction.setEffectiveWeight(0);
+              walkAction.play();
               console.log("[Game] Walking clip ready", clip.duration);
             })
             .catch((err) => console.error("[Game] Walking load failed", err));
@@ -942,21 +951,30 @@ export default function Game() {
       if (vrm) {
         // Decide how strongly the FBX run animation drives the rig.
         const speedNow = Math.hypot(playerState.vel.x, playerState.vel.z);
-        const runTargetRaw = speedNow > 6.5 ? Math.min(1, (speedNow - 6.5) / 2.0) : 0;
-        const walkTargetRaw = speedNow > 0.4 ? Math.min(1, (speedNow - 0.4) / 1.2) : 0;
-        const runTarget = runTargetRaw;
-        const walkTarget = walkTargetRaw * (1 - runTarget);
+        // Binary targets crossfaded fast — prevents partial blends with the
+        // procedural fallback that caused stuttering ("travando").
+        const moving = speedNow > 0.5;
+        const sprinting = speedNow > 6.5;
+        const runTarget = sprinting ? 1 : 0;
+        const walkTarget = moving && !sprinting ? 1 : 0;
+        const blendK = Math.min(1, dt * 10);
         if (runAction) {
-          const cur = runAction.getEffectiveWeight();
-          runAction.setEffectiveWeight(lerp(cur, runTarget, Math.min(1, dt * 8)));
+          runAction.setEffectiveTimeScale(1);
+          runAction.setEffectiveWeight(
+            lerp(runAction.getEffectiveWeight(), runTarget, blendK)
+          );
         }
         if (walkAction) {
-          const cur = walkAction.getEffectiveWeight();
-          walkAction.setEffectiveWeight(lerp(cur, walkTarget, Math.min(1, dt * 8)));
+          walkAction.setEffectiveTimeScale(1);
+          walkAction.setEffectiveWeight(
+            lerp(walkAction.getEffectiveWeight(), walkTarget, blendK)
+          );
         }
         const totalClipWeight =
           (runAction?.getEffectiveWeight() ?? 0) + (walkAction?.getEffectiveWeight() ?? 0);
-        const runActive = totalClipWeight > 0.85;
+        // As soon as a clip contributes meaningfully, let it own the body bones
+        // so procedural leg/arm code doesn't fight it.
+        const runActive = totalClipWeight > 0.25;
         updateCharacterAnimation(vrm, dt, {
           speed: speedNow,
           maxSpeed: 9,
