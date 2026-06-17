@@ -566,21 +566,30 @@ export default function Game() {
         player.add(sceneRoot);
         if (loadedVrm) vrm = loadedVrm;
         if (loadedVrm) {
+          // Single shared mixer — created up front to avoid a race where the
+          // walk and run callbacks each construct one and orphan the other.
+          mixer = new THREE.AnimationMixer(loadedVrm.scene);
           loadMixamoAnimation(joggingAsset.url, loadedVrm)
             .then((clip) => {
-              mixer = new THREE.AnimationMixer(loadedVrm.scene);
-              runAction = mixer.clipAction(clip);
-              runAction.play();
+              clip.name = "vrmJog";
+              runAction = mixer!.clipAction(clip);
+              runAction.setLoop(THREE.LoopRepeat, Infinity);
+              runAction.clampWhenFinished = false;
+              runAction.enabled = true;
               runAction.setEffectiveWeight(0);
+              runAction.play();
               console.log("[Game] Jogging clip ready", clip.duration);
             })
             .catch((err) => console.error("[Game] Jogging load failed", err));
           loadMixamoAnimation(walkingAsset.url, loadedVrm)
             .then((clip) => {
-              if (!mixer) mixer = new THREE.AnimationMixer(loadedVrm.scene);
-              walkAction = mixer.clipAction(clip);
-              walkAction.play();
+              clip.name = "vrmWalk";
+              walkAction = mixer!.clipAction(clip);
+              walkAction.setLoop(THREE.LoopRepeat, Infinity);
+              walkAction.clampWhenFinished = false;
+              walkAction.enabled = true;
               walkAction.setEffectiveWeight(0);
+              walkAction.play();
               console.log("[Game] Walking clip ready", clip.duration);
             })
             .catch((err) => console.error("[Game] Walking load failed", err));
