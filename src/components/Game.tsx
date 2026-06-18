@@ -636,9 +636,9 @@ export default function Game() {
       const p =
         pos ??
         new THREE.Vector3(
-          rng(-WORLD_SIZE / 2 + 10, WORLD_SIZE / 2 - 10),
+          rng(-arenaBounds.half + 4, arenaBounds.half - 4),
           0,
-          rng(-WORLD_SIZE / 2 + 10, WORLD_SIZE / 2 - 10)
+          rng(-arenaBounds.half + 4, arenaBounds.half - 4)
         );
       const mesh = new THREE.Mesh(
         new THREE.CapsuleGeometry(0.5, 1.2, 4, 8),
