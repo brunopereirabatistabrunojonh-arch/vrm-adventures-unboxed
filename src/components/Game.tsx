@@ -1,10 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { VRMLoaderPlugin, VRMUtils, type VRM } from "@pixiv/three-vrm";
 import characterAsset from "@/assets/character.vrm.asset.json";
 import joggingAsset from "@/assets/Jogging.fbx.asset.json";
 import walkingAsset from "@/assets/Walking.fbx.asset.json";
+import stageFbxAsset from "@/assets/arena/Stage0.fbx.asset.json";
+import stageBaseColorAsset from "@/assets/arena/Stage_Base_color.png.asset.json";
+import stageMetallicAsset from "@/assets/arena/Stage_Metallic.png.asset.json";
+import stageRoughnessAsset from "@/assets/arena/Stage_Roughness.png.asset.json";
+import stageOpacityAsset from "@/assets/arena/Stage_Opacity.png.asset.json";
+import mainBaseColorAsset from "@/assets/arena/Main_Base_Base_color.png.asset.json";
+import mainMetallicAsset from "@/assets/arena/Main_Base_Metallic.png.asset.json";
+import mainRoughnessAsset from "@/assets/arena/Main_Base_Roughness.png.asset.json";
 import { loadMixamoAnimation } from "@/lib/loadMixamoAnimation";
 
 type Enemy = {
