@@ -887,7 +887,7 @@ export default function Game() {
             en.hp = en.maxHp;
             en.mesh.visible = true;
             const angle = Math.random() * Math.PI * 2;
-            const r = rng(20, WORLD_SIZE / 2 - 10);
+            const r = rng(6, Math.max(8, arenaBounds.half - 4));
             en.mesh.position.set(Math.cos(angle) * r, 1.1, Math.sin(angle) * r);
             (en.mesh.material as THREE.MeshStandardMaterial).color.set(0xc83232);
             en.state = "idle";
@@ -929,7 +929,7 @@ export default function Game() {
           en.mesh.position.x += Math.cos(en.patrolDir) * pspeed * dt;
           en.mesh.position.z += Math.sin(en.patrolDir) * pspeed * dt;
           en.mesh.rotation.y = en.patrolDir + Math.PI;
-          const lim = WORLD_SIZE / 2 - 2;
+          const lim = arenaBounds.half - 2;
           if (en.mesh.position.x < -lim || en.mesh.position.x > lim || en.mesh.position.z < -lim || en.mesh.position.z > lim) {
             en.patrolDir += Math.PI;
             en.mesh.position.x = Math.max(-lim, Math.min(lim, en.mesh.position.x));
