@@ -455,70 +455,83 @@ export default function Game() {
     sun.shadow.camera.bottom = -80;
     scene.add(sun);
 
-    // Ground
+    // Invisible safety floor (physics fallback at y=0)
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 32, 32),
+      new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE),
       new THREE.MeshStandardMaterial({ color: 0x4a8f3a })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
+    ground.visible = false;
     scene.add(ground);
 
-    // Boundary walls (visual)
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x8b6b4a });
-    const wallH = 4;
-    const walls: THREE.Mesh[] = [];
-    const wallDefs = [
-      { x: 0, z: -WORLD_SIZE / 2, w: WORLD_SIZE, d: 1 },
-      { x: 0, z: WORLD_SIZE / 2, w: WORLD_SIZE, d: 1 },
-      { x: -WORLD_SIZE / 2, z: 0, w: 1, d: WORLD_SIZE },
-      { x: WORLD_SIZE / 2, z: 0, w: 1, d: WORLD_SIZE },
-    ];
-    wallDefs.forEach((w) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w.w, wallH, w.d), wallMat);
-      m.position.set(w.x, wallH / 2, w.z);
-      m.castShadow = true;
-      m.receiveShadow = true;
-      scene.add(m);
-      walls.push(m);
-    });
-
-    // Decorative obstacles (rocks/trees) — also collidable
+    // Beach Battle arena — loaded from FBX
     type Obstacle = { pos: THREE.Vector3; radius: number };
     const obstacles: Obstacle[] = [];
     const rng = (min: number, max: number) => Math.random() * (max - min) + min;
-    for (let i = 0; i < 40; i++) {
-      const isTree = Math.random() > 0.4;
-      const x = rng(-WORLD_SIZE / 2 + 5, WORLD_SIZE / 2 - 5);
-      const z = rng(-WORLD_SIZE / 2 + 5, WORLD_SIZE / 2 - 5);
-      if (Math.hypot(x, z) < 8) continue;
-      if (isTree) {
-        const trunk = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.5, 0.7, 4, 8),
-          new THREE.MeshStandardMaterial({ color: 0x5a3a22 })
-        );
-        trunk.position.set(x, 2, z);
-        trunk.castShadow = true;
-        const leaves = new THREE.Mesh(
-          new THREE.ConeGeometry(2.5, 5, 8),
-          new THREE.MeshStandardMaterial({ color: 0x2f6b2a })
-        );
-        leaves.position.set(x, 6, z);
-        leaves.castShadow = true;
-        scene.add(trunk, leaves);
-        obstacles.push({ pos: new THREE.Vector3(x, 0, z), radius: 1.2 });
-      } else {
-        const r = rng(1, 2.4);
-        const rock = new THREE.Mesh(
-          new THREE.DodecahedronGeometry(r, 0),
-          new THREE.MeshStandardMaterial({ color: 0x888880, flatShading: true })
-        );
-        rock.position.set(x, r * 0.6, z);
-        rock.castShadow = true;
-        rock.receiveShadow = true;
-        scene.add(rock);
-        obstacles.push({ pos: new THREE.Vector3(x, 0, z), radius: r });
-      }
+    // Mutable half-extent for the walkable area; updated once the arena bbox is known.
+    const arenaBounds = { half: WORLD_SIZE / 2 };
+
+    {
+      // Map FBX-embedded texture filenames to CDN URLs
+      const textureMap: Record<string, string> = {
+        "Stage_Base_color.png": stageBaseColorAsset.url,
+        "Stage_Metallic.png": stageMetallicAsset.url,
+        "Stage_Roughness.png": stageRoughnessAsset.url,
+        "Stage_Opacity.png": stageOpacityAsset.url,
+        "Main_Base_Base_color.png": mainBaseColorAsset.url,
+        "Main_Base_Metallic.png": mainMetallicAsset.url,
+        "Main_Base_Roughness.png": mainRoughnessAsset.url,
+      };
+      const manager = new THREE.LoadingManager();
+      manager.setURLModifier((url) => {
+        const base = url.split(/[\\/]/).pop() ?? url;
+        return textureMap[base] ?? url;
+      });
+      const fbxLoader = new FBXLoader(manager);
+      fbxLoader.load(stageFbxAsset.url, (stage) => {
+        // Auto-fit to a target footprint so the arena fills the play area.
+        const bbox = new THREE.Box3().setFromObject(stage);
+        const size = new THREE.Vector3();
+        bbox.getSize(size);
+        const target = 90; // desired arena footprint (units)
+        const maxDim = Math.max(size.x, size.z) || 1;
+        const scale = target / maxDim;
+        stage.scale.setScalar(scale);
+
+        // Re-measure and align: top walkable surface at y=0, centered on origin.
+        const bbox2 = new THREE.Box3().setFromObject(stage);
+        const center = new THREE.Vector3();
+        bbox2.getCenter(center);
+        stage.position.x -= center.x;
+        stage.position.z -= center.z;
+        stage.position.y -= bbox2.max.y; // place top surface on y=0
+
+        stage.traverse((obj) => {
+          const m = obj as THREE.Mesh;
+          if ((m as any).isMesh) {
+            m.castShadow = true;
+            m.receiveShadow = true;
+            const mat = m.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
+            const fix = (mm: THREE.Material) => {
+              const s = mm as THREE.MeshStandardMaterial;
+              if (s.map) s.map.colorSpace = THREE.SRGBColorSpace;
+              s.side = THREE.FrontSide;
+              s.needsUpdate = true;
+            };
+            if (Array.isArray(mat)) mat.forEach(fix);
+            else if (mat) fix(mat);
+          }
+        });
+
+        scene.add(stage);
+
+        // Update walk clamp to the visible arena footprint.
+        const finalBox = new THREE.Box3().setFromObject(stage);
+        const halfX = (finalBox.max.x - finalBox.min.x) / 2;
+        const halfZ = (finalBox.max.z - finalBox.min.z) / 2;
+        arenaBounds.half = Math.min(halfX, halfZ) - 2;
+      });
     }
 
     // Player container — VRM is loaded async
