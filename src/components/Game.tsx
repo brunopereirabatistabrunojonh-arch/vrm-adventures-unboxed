@@ -773,8 +773,8 @@ export default function Game() {
     };
 
     function resolveCollision(pos: THREE.Vector3, radius: number) {
-      // Walls (world bounds)
-      const lim = WORLD_SIZE / 2 - radius - 0.6;
+      // Walls (arena bounds)
+      const lim = arenaBounds.half - radius - 0.6;
       pos.x = Math.max(-lim, Math.min(lim, pos.x));
       pos.z = Math.max(-lim, Math.min(lim, pos.z));
       // Obstacles
