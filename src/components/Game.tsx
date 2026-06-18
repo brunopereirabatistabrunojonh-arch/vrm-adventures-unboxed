@@ -473,64 +473,96 @@ export default function Game() {
     const arenaBounds = { half: WORLD_SIZE / 2 };
 
     {
-      // Map FBX-embedded texture filenames to CDN URLs
-      const textureMap: Record<string, string> = {
-        "Stage_Base_color.png": stageBaseColorAsset.url,
-        "Stage_Metallic.png": stageMetallicAsset.url,
-        "Stage_Roughness.png": stageRoughnessAsset.url,
-        "Stage_Opacity.png": stageOpacityAsset.url,
-        "Main_Base_Base_color.png": mainBaseColorAsset.url,
-        "Main_Base_Metallic.png": mainMetallicAsset.url,
-        "Main_Base_Roughness.png": mainRoughnessAsset.url,
+      // Preload PBR textures and assign them by material name.
+      const texLoader = new THREE.TextureLoader();
+      const loadTex = (url: string, srgb: boolean) => {
+        const t = texLoader.load(url);
+        t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.anisotropy = 8;
+        t.flipY = false; // FBX UVs match three's default (flipY=false) — matches Maya export
+        return t;
       };
-      const manager = new THREE.LoadingManager();
-      manager.setURLModifier((url) => {
-        const base = url.split(/[\\/]/).pop() ?? url;
-        return textureMap[base] ?? url;
-      });
-      const fbxLoader = new FBXLoader(manager);
+      const stageTex = {
+        map: loadTex(stageBaseColorAsset.url, true),
+        metallic: loadTex(stageMetallicAsset.url, false),
+        rough: loadTex(stageRoughnessAsset.url, false),
+        alpha: loadTex(stageOpacityAsset.url, false),
+      };
+      const mainTex = {
+        map: loadTex(mainBaseColorAsset.url, true),
+        metallic: loadTex(mainMetallicAsset.url, false),
+        rough: loadTex(mainRoughnessAsset.url, false),
+      };
+
+      const applyMaterial = (mesh: THREE.Mesh) => {
+        const matName = ((Array.isArray(mesh.material) ? mesh.material[0] : mesh.material)?.name || "").toLowerCase();
+        const isMain = matName.includes("main");
+        const isStage = matName.includes("stage") && !isMain;
+        const src = isMain ? mainTex : isStage ? stageTex : mainTex;
+        const pbr = new THREE.MeshStandardMaterial({
+          map: src.map,
+          metalnessMap: src.metallic,
+          roughnessMap: src.rough,
+          metalness: 1.0,
+          roughness: 1.0,
+          alphaMap: isStage ? stageTex.alpha : undefined,
+          transparent: isStage,
+          alphaTest: isStage ? 0.5 : 0,
+          side: isStage ? THREE.DoubleSide : THREE.FrontSide,
+          name: matName || "stage_mat",
+        });
+        mesh.material = pbr;
+      };
+
+      const fbxLoader = new FBXLoader();
       fbxLoader.load(stageFbxAsset.url, (stage) => {
         // Auto-fit to a target footprint so the arena fills the play area.
         const bbox = new THREE.Box3().setFromObject(stage);
         const size = new THREE.Vector3();
         bbox.getSize(size);
-        const target = 90; // desired arena footprint (units)
+        const target = 60; // desired arena footprint (units)
         const maxDim = Math.max(size.x, size.z) || 1;
         const scale = target / maxDim;
         stage.scale.setScalar(scale);
 
-        // Re-measure and align: top walkable surface at y=0, centered on origin.
+        // Re-measure and center horizontally.
         const bbox2 = new THREE.Box3().setFromObject(stage);
         const center = new THREE.Vector3();
         bbox2.getCenter(center);
         stage.position.x -= center.x;
         stage.position.z -= center.z;
-        stage.position.y -= bbox2.max.y; // place top surface on y=0
+        stage.position.y -= bbox2.min.y; // floor of bbox sits on y=0 baseline
 
         stage.traverse((obj) => {
           const m = obj as THREE.Mesh;
           if ((m as any).isMesh) {
             m.castShadow = true;
             m.receiveShadow = true;
-            const mat = m.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
-            const fix = (mm: THREE.Material) => {
-              const s = mm as THREE.MeshStandardMaterial;
-              if (s.map) s.map.colorSpace = THREE.SRGBColorSpace;
-              s.side = THREE.FrontSide;
-              s.needsUpdate = true;
-            };
-            if (Array.isArray(mat)) mat.forEach(fix);
-            else if (mat) fix(mat);
+            applyMaterial(m);
           }
         });
 
         scene.add(stage);
 
-        // Update walk clamp to the visible arena footprint.
+        // Find the walkable floor height at the origin via downward raycast,
+        // then shift the arena so that surface aligns with y=0.
         const finalBox = new THREE.Box3().setFromObject(stage);
-        const halfX = (finalBox.max.x - finalBox.min.x) / 2;
-        const halfZ = (finalBox.max.z - finalBox.min.z) / 2;
-        arenaBounds.half = Math.min(halfX, halfZ) - 2;
+        const ray = new THREE.Raycaster(
+          new THREE.Vector3(0, finalBox.max.y + 10, 0),
+          new THREE.Vector3(0, -1, 0),
+          0,
+          (finalBox.max.y - finalBox.min.y) + 20
+        );
+        const hits = ray.intersectObject(stage, true);
+        const floorY = hits.length > 0 ? hits[0].point.y : finalBox.min.y;
+        stage.position.y -= floorY;
+
+        // Update walk clamp to the visible arena footprint.
+        const after = new THREE.Box3().setFromObject(stage);
+        const halfX = (after.max.x - after.min.x) / 2;
+        const halfZ = (after.max.z - after.min.z) / 2;
+        arenaBounds.half = Math.min(halfX, halfZ) - 1.5;
       });
     }
 
