@@ -918,7 +918,7 @@ export default function Game() {
     function doRespawn() {
       playerState.hp = PLAYER_MAX_HP;
       playerState.dead = false;
-      player.position.set(0, 0, 0);
+      player.position.set(0, 5, 0);
       playerState.vel.set(0, 0, 0);
       setHp(PLAYER_MAX_HP);
       setDead(false);
