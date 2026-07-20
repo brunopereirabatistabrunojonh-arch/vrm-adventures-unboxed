@@ -475,8 +475,17 @@ export default function Game() {
     {
       // Preload PBR textures and assign them by material name.
       const texLoader = new THREE.TextureLoader();
-      const loadTex = (url: string, srgb: boolean) => {
-        const t = texLoader.load(url);
+      const failedTextures: string[] = [];
+      const loadTex = (url: string, srgb: boolean, label: string) => {
+        const t = texLoader.load(
+          url,
+          undefined,
+          undefined,
+          (err) => {
+            failedTextures.push(label);
+            console.warn(`[Arena] Failed to load texture "${label}" from ${url}`, err);
+          },
+        );
         t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
         t.wrapS = t.wrapT = THREE.RepeatWrapping;
         t.anisotropy = 8;
@@ -484,33 +493,50 @@ export default function Game() {
         return t;
       };
       const stageTex = {
-        map: loadTex(stageBaseColorAsset.url, true),
-        metallic: loadTex(stageMetallicAsset.url, false),
-        rough: loadTex(stageRoughnessAsset.url, false),
-        alpha: loadTex(stageOpacityAsset.url, false),
+        map: loadTex(stageBaseColorAsset.url, true, "Stage_Base_color"),
+        metallic: loadTex(stageMetallicAsset.url, false, "Stage_Metallic"),
+        rough: loadTex(stageRoughnessAsset.url, false, "Stage_Roughness"),
+        alpha: loadTex(stageOpacityAsset.url, false, "Stage_Opacity"),
       };
       const mainTex = {
-        map: loadTex(mainBaseColorAsset.url, true),
-        metallic: loadTex(mainMetallicAsset.url, false),
-        rough: loadTex(mainRoughnessAsset.url, false),
+        map: loadTex(mainBaseColorAsset.url, true, "Main_Base_Base_color"),
+        metallic: loadTex(mainMetallicAsset.url, false, "Main_Base_Metallic"),
+        rough: loadTex(mainRoughnessAsset.url, false, "Main_Base_Roughness"),
       };
 
+      // Fallback palette used when a mesh's material name does not match any
+      // known slot (Stage/Main_Base) — keeps the arena visually coherent.
+      const FALLBACK_COLORS: Record<string, number> = {
+        stage: 0xb03030,     // red podium
+        main: 0xd9c39a,      // sandy base
+        default: 0x888888,   // neutral gray
+      };
+      const unmatchedMaterials = new Set<string>();
       const applyMaterial = (mesh: THREE.Mesh) => {
-        const matName = ((Array.isArray(mesh.material) ? mesh.material[0] : mesh.material)?.name || "").toLowerCase();
+        const rawName = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material)?.name || "";
+        const matName = rawName.toLowerCase();
         const isMain = matName.includes("main");
         const isStage = matName.includes("stage") && !isMain;
-        const src = isMain ? mainTex : isStage ? stageTex : mainTex;
+        const matched = isMain || isStage;
+        if (!matched) unmatchedMaterials.add(rawName || "(unnamed)");
+        const src = isMain ? mainTex : isStage ? stageTex : null;
+        const fallbackColor = isStage
+          ? FALLBACK_COLORS.stage
+          : isMain
+            ? FALLBACK_COLORS.main
+            : FALLBACK_COLORS.default;
         const pbr = new THREE.MeshStandardMaterial({
-          map: src.map,
-          metalnessMap: src.metallic,
-          roughnessMap: src.rough,
-          metalness: 1.0,
-          roughness: 1.0,
+          map: src?.map,
+          metalnessMap: src?.metallic,
+          roughnessMap: src?.rough,
+          color: fallbackColor, // shows through if map fails to load
+          metalness: src ? 1.0 : 0.1,
+          roughness: src ? 1.0 : 0.85,
           alphaMap: isStage ? stageTex.alpha : undefined,
           transparent: isStage,
           alphaTest: isStage ? 0.5 : 0,
           side: isStage ? THREE.DoubleSide : THREE.FrontSide,
-          name: matName || "stage_mat",
+          name: rawName || "arena_fallback_mat",
         });
         mesh.material = pbr;
       };
@@ -563,6 +589,18 @@ export default function Game() {
         const halfX = (after.max.x - after.min.x) / 2;
         const halfZ = (after.max.z - after.min.z) / 2;
         arenaBounds.half = Math.min(halfX, halfZ) - 1.5;
+
+        if (unmatchedMaterials.size > 0) {
+          console.warn(
+            `[Arena] ${unmatchedMaterials.size} material(s) did not match Stage/Main_Base — using fallback colors:`,
+            Array.from(unmatchedMaterials),
+          );
+        }
+        if (failedTextures.length > 0) {
+          console.warn("[Arena] Textures that failed to load:", failedTextures);
+        }
+      }, undefined, (err) => {
+        console.error("[Arena] Failed to load Stage0.fbx", err);
       });
     }
 
