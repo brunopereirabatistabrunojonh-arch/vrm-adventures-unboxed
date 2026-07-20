@@ -658,7 +658,7 @@ export default function Game() {
 
     // Player container — VRM is loaded async
     const player = new THREE.Group();
-    player.position.set(0, 0, 0);
+    player.position.set(0, 5, 0); // drop-in; ground snap resolves the exact Y
     scene.add(player);
 
     // Placeholder until VRM loads
