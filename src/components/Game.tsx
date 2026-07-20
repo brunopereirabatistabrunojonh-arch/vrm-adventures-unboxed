@@ -504,39 +504,37 @@ export default function Game() {
         rough: loadTex(mainRoughnessAsset.url, false, "Main_Base_Roughness"),
       };
 
-      // Fallback palette used when a mesh's material name does not match any
-      // known slot (Stage/Main_Base) — keeps the arena visually coherent.
-      const FALLBACK_COLORS: Record<string, number> = {
-        stage: 0xb03030,     // red podium
-        main: 0xd9c39a,      // sandy base
-        default: 0x888888,   // neutral gray
-      };
+      // Restore the original PBR look. Route every mesh to either the Stage
+      // or Main_Base texture set based on its source material name; log any
+      // material we can't confidently classify so the mapping can be tightened.
       const unmatchedMaterials = new Set<string>();
       const applyMaterial = (mesh: THREE.Mesh) => {
-        const rawName = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material)?.name || "";
-        const matName = rawName.toLowerCase();
-        const isMain = matName.includes("main");
-        const isStage = matName.includes("stage") && !isMain;
-        const matched = isMain || isStage;
-        if (!matched) unmatchedMaterials.add(rawName || "(unnamed)");
-        const src = isMain ? mainTex : isStage ? stageTex : null;
-        const fallbackColor = isStage
-          ? FALLBACK_COLORS.stage
-          : isMain
-            ? FALLBACK_COLORS.main
-            : FALLBACK_COLORS.default;
+        const rawName =
+          (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material)?.name || "";
+        const meshName = mesh.name || "";
+        const hay = `${rawName} ${meshName}`.toLowerCase();
+        const isMain =
+          hay.includes("main_base") || hay.includes("mainbase") || hay.includes("main");
+        const isStage = !isMain && hay.includes("stage");
+        if (!isMain && !isStage) {
+          unmatchedMaterials.add(`${rawName || "(unnamed)"} / mesh:${meshName || "(unnamed)"}`);
+        }
+        // Default unknown meshes to the Stage set (podium/props) — matches the
+        // original arena where non-base meshes belong to the platform.
+        const useStage = isStage || (!isMain && !isStage);
+        const src = isMain ? mainTex : stageTex;
         const pbr = new THREE.MeshStandardMaterial({
-          map: src?.map,
-          metalnessMap: src?.metallic,
-          roughnessMap: src?.rough,
-          color: fallbackColor, // shows through if map fails to load
-          metalness: src ? 1.0 : 0.1,
-          roughness: src ? 1.0 : 0.85,
-          alphaMap: isStage ? stageTex.alpha : undefined,
-          transparent: isStage,
-          alphaTest: isStage ? 0.5 : 0,
-          side: isStage ? THREE.DoubleSide : THREE.FrontSide,
-          name: rawName || "arena_fallback_mat",
+          map: src.map,
+          metalnessMap: src.metallic,
+          roughnessMap: src.rough,
+          color: 0xffffff,
+          metalness: 1.0,
+          roughness: 1.0,
+          alphaMap: useStage ? stageTex.alpha : undefined,
+          transparent: useStage,
+          alphaTest: useStage ? 0.5 : 0,
+          side: useStage ? THREE.DoubleSide : THREE.FrontSide,
+          name: rawName || (useStage ? "stage_mat" : "main_mat"),
         });
         mesh.material = pbr;
       };
@@ -592,21 +590,75 @@ export default function Game() {
 
         if (unmatchedMaterials.size > 0) {
           console.warn(
-            `[Arena] ${unmatchedMaterials.size} material(s) did not match Stage/Main_Base — using fallback colors:`,
+            `[Arena] ${unmatchedMaterials.size} material(s) did not match Stage/Main_Base — routed to Stage textures:`,
             Array.from(unmatchedMaterials),
           );
         }
         if (failedTextures.length > 0) {
           console.warn("[Arena] Textures that failed to load:", failedTextures);
         }
+        // Publish the loaded arena root so the physics loop can collide
+        // against every mesh (floor, platforms, walls, props).
+        stageColliderRef.mesh = stage;
       }, undefined, (err) => {
         console.error("[Arena] Failed to load Stage0.fbx", err);
       });
     }
 
+    // ---- Collision / physics against the arena mesh --------------------
+    // The arena is authored as a single FBX, so we treat every triangle as a
+    // static collider and query it with raycasts each frame. This gives us
+    // ground detection (ramps, stairs, platforms) and horizontal pushback
+    // (walls, obstacles) without hand-authored primitives.
+    const stageColliderRef: { mesh: THREE.Object3D | null } = { mesh: null };
+    const groundRay = new THREE.Raycaster();
+    const wallRay = new THREE.Raycaster();
+    const CAPSULE_RADIUS = 0.35;
+    const CAPSULE_HEIGHT = 1.7; // total; feet at 0, head at CAPSULE_HEIGHT
+    const STEP_HEIGHT = 0.45;    // stairs/ramps we can walk up
+
+    // Sample the floor height beneath a world-space position. Returns the
+    // walkable Y or null if nothing is below (out of arena).
+    const sampleGround = (x: number, z: number, fromY: number): number | null => {
+      if (!stageColliderRef.mesh) return 0;
+      groundRay.set(new THREE.Vector3(x, fromY, z), new THREE.Vector3(0, -1, 0));
+      groundRay.far = fromY + 50;
+      const hits = groundRay.intersectObject(stageColliderRef.mesh, true);
+      return hits.length > 0 ? hits[0].point.y : null;
+    };
+
+    // Push the position out of any wall it entered along 8 compass directions.
+    const pushOutWalls = (pos: THREE.Vector3) => {
+      if (!stageColliderRef.mesh) return;
+      const origin = new THREE.Vector3(pos.x, pos.y + CAPSULE_HEIGHT * 0.5, pos.z);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const dir = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+        wallRay.set(origin, dir);
+        wallRay.far = CAPSULE_RADIUS + 0.05;
+        const hits = wallRay.intersectObject(stageColliderRef.mesh, true);
+        if (hits.length > 0) {
+          const h = hits[0];
+          // Ignore near-horizontal surfaces (that's the floor/ramp, not a wall).
+          const n = h.face?.normal;
+          if (n) {
+            const worldN = n.clone().transformDirection(h.object.matrixWorld).normalize();
+            if (Math.abs(worldN.y) > 0.6) continue;
+          }
+          const overlap = CAPSULE_RADIUS - h.distance;
+          if (overlap > 0) {
+            pos.x -= dir.x * overlap;
+            pos.z -= dir.z * overlap;
+          }
+        }
+      }
+    };
+    // Expose to closures below via captured references.
+    (window as any).__arenaCollider = stageColliderRef;
+
     // Player container — VRM is loaded async
     const player = new THREE.Group();
-    player.position.set(0, 0, 0);
+    player.position.set(0, 5, 0); // drop-in; ground snap resolves the exact Y
     scene.add(player);
 
     // Placeholder until VRM loads
@@ -843,11 +895,11 @@ export default function Game() {
     };
 
     function resolveCollision(pos: THREE.Vector3, radius: number) {
-      // Walls (arena bounds)
+      // Legacy arena-bounds clamp (used only as a safety net while the FBX
+      // collider is still loading — arena bounds get updated after load).
       const lim = arenaBounds.half - radius - 0.6;
       pos.x = Math.max(-lim, Math.min(lim, pos.x));
       pos.z = Math.max(-lim, Math.min(lim, pos.z));
-      // Obstacles
       for (const o of obstacles) {
         const dx = pos.x - o.pos.x;
         const dz = pos.z - o.pos.z;
@@ -859,12 +911,14 @@ export default function Game() {
           pos.z += dz * push;
         }
       }
+      // Push out of arena geometry (walls, props, pillars).
+      pushOutWalls(pos);
     }
 
     function doRespawn() {
       playerState.hp = PLAYER_MAX_HP;
       playerState.dead = false;
-      player.position.set(0, 0, 0);
+      player.position.set(0, 5, 0);
       playerState.vel.set(0, 0, 0);
       setHp(PLAYER_MAX_HP);
       setDead(false);
@@ -929,19 +983,50 @@ export default function Game() {
         attackRef.current = false;
         tryAttack();
       }
+      // Gravity
       playerState.vel.y -= 22 * dt;
 
+      // Integrate XZ then resolve walls, then integrate Y with ground snap.
+      const prevY = player.position.y;
       player.position.x += playerState.vel.x * dt;
-      player.position.y += playerState.vel.y * dt;
       player.position.z += playerState.vel.z * dt;
+      resolveCollision(player.position, CAPSULE_RADIUS);
 
-      if (player.position.y <= 0) {
-        player.position.y = 0;
-        playerState.vel.y = 0;
-        playerState.onGround = true;
+      player.position.y += playerState.vel.y * dt;
+
+      // Ground detection via downward raycast against the arena mesh.
+      const groundY = sampleGround(
+        player.position.x,
+        player.position.z,
+        player.position.y + CAPSULE_HEIGHT + 0.5,
+      );
+      if (groundY !== null) {
+        // Snap to floor if we're at/under it, or step up for small ledges.
+        const stepUpMax = prevY + STEP_HEIGHT;
+        if (playerState.vel.y <= 0 && player.position.y <= groundY + 0.02) {
+          player.position.y = groundY;
+          playerState.vel.y = 0;
+          playerState.onGround = true;
+        } else if (
+          playerState.vel.y <= 0 &&
+          groundY > prevY &&
+          groundY <= stepUpMax
+        ) {
+          // Auto-step onto stairs/ramps.
+          player.position.y = groundY;
+          playerState.vel.y = 0;
+          playerState.onGround = true;
+        } else {
+          playerState.onGround = false;
+        }
+      } else {
+        // Off the map — fall to base plane and reset.
+        if (player.position.y < -20) {
+          player.position.set(0, 5, 0);
+          playerState.vel.set(0, 0, 0);
+        }
+        playerState.onGround = false;
       }
-
-      resolveCollision(player.position, 0.6);
 
       // Attack timers
       if (attackTimer > 0) attackTimer -= dt;
@@ -1026,18 +1111,31 @@ export default function Game() {
         if (playerState.respawn <= 0) doRespawn();
       }
 
-      // Camera follow (third person)
+      // Camera follow (third person) with wall occlusion raycast so the
+      // camera never clips through arena geometry.
       const camDist = 5;
       const camHeight = 2.2;
       const camOffset = new THREE.Vector3(
         -Math.sin(yaw) * camDist,
         camHeight - pitch * camDist,
-        -Math.cos(yaw) * camDist
+        -Math.cos(yaw) * camDist,
       );
-      const targetCamPos = player.position.clone().add(new THREE.Vector3(0, 1.2, 0)).add(camOffset);
-      camera.position.lerp(targetCamPos, Math.min(1, dt * 10));
-      const lookAt = player.position.clone().add(new THREE.Vector3(0, 1.3, 0));
-      camera.lookAt(lookAt);
+      const camAnchor = player.position.clone().add(new THREE.Vector3(0, 1.4, 0));
+      let targetCamPos = camAnchor.clone().add(camOffset);
+      if (stageColliderRef.mesh) {
+        const dir = targetCamPos.clone().sub(camAnchor);
+        const len = dir.length();
+        dir.normalize();
+        wallRay.set(camAnchor, dir);
+        wallRay.far = len;
+        const hits = wallRay.intersectObject(stageColliderRef.mesh, true);
+        if (hits.length > 0) {
+          const safe = Math.max(0.6, hits[0].distance - 0.2);
+          targetCamPos = camAnchor.clone().add(dir.multiplyScalar(safe));
+        }
+      }
+      camera.position.lerp(targetCamPos, Math.min(1, dt * 12));
+      camera.lookAt(camAnchor);
 
       // VRM update
       if (vrm) {
