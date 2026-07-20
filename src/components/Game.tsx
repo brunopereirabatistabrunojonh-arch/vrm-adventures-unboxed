@@ -895,11 +895,11 @@ export default function Game() {
     };
 
     function resolveCollision(pos: THREE.Vector3, radius: number) {
-      // Walls (arena bounds)
+      // Legacy arena-bounds clamp (used only as a safety net while the FBX
+      // collider is still loading — arena bounds get updated after load).
       const lim = arenaBounds.half - radius - 0.6;
       pos.x = Math.max(-lim, Math.min(lim, pos.x));
       pos.z = Math.max(-lim, Math.min(lim, pos.z));
-      // Obstacles
       for (const o of obstacles) {
         const dx = pos.x - o.pos.x;
         const dz = pos.z - o.pos.z;
@@ -911,6 +911,8 @@ export default function Game() {
           pos.z += dz * push;
         }
       }
+      // Push out of arena geometry (walls, props, pillars).
+      pushOutWalls(pos);
     }
 
     function doRespawn() {
@@ -981,19 +983,50 @@ export default function Game() {
         attackRef.current = false;
         tryAttack();
       }
+      // Gravity
       playerState.vel.y -= 22 * dt;
 
+      // Integrate XZ then resolve walls, then integrate Y with ground snap.
+      const prevY = player.position.y;
       player.position.x += playerState.vel.x * dt;
-      player.position.y += playerState.vel.y * dt;
       player.position.z += playerState.vel.z * dt;
+      resolveCollision(player.position, CAPSULE_RADIUS);
 
-      if (player.position.y <= 0) {
-        player.position.y = 0;
-        playerState.vel.y = 0;
-        playerState.onGround = true;
+      player.position.y += playerState.vel.y * dt;
+
+      // Ground detection via downward raycast against the arena mesh.
+      const groundY = sampleGround(
+        player.position.x,
+        player.position.z,
+        player.position.y + CAPSULE_HEIGHT + 0.5,
+      );
+      if (groundY !== null) {
+        // Snap to floor if we're at/under it, or step up for small ledges.
+        const stepUpMax = prevY + STEP_HEIGHT;
+        if (playerState.vel.y <= 0 && player.position.y <= groundY + 0.02) {
+          player.position.y = groundY;
+          playerState.vel.y = 0;
+          playerState.onGround = true;
+        } else if (
+          playerState.vel.y <= 0 &&
+          groundY > prevY &&
+          groundY <= stepUpMax
+        ) {
+          // Auto-step onto stairs/ramps.
+          player.position.y = groundY;
+          playerState.vel.y = 0;
+          playerState.onGround = true;
+        } else {
+          playerState.onGround = false;
+        }
+      } else {
+        // Off the map — fall to base plane and reset.
+        if (player.position.y < -20) {
+          player.position.set(0, 5, 0);
+          playerState.vel.set(0, 0, 0);
+        }
+        playerState.onGround = false;
       }
-
-      resolveCollision(player.position, 0.6);
 
       // Attack timers
       if (attackTimer > 0) attackTimer -= dt;
@@ -1078,18 +1111,31 @@ export default function Game() {
         if (playerState.respawn <= 0) doRespawn();
       }
 
-      // Camera follow (third person)
+      // Camera follow (third person) with wall occlusion raycast so the
+      // camera never clips through arena geometry.
       const camDist = 5;
       const camHeight = 2.2;
       const camOffset = new THREE.Vector3(
         -Math.sin(yaw) * camDist,
         camHeight - pitch * camDist,
-        -Math.cos(yaw) * camDist
+        -Math.cos(yaw) * camDist,
       );
-      const targetCamPos = player.position.clone().add(new THREE.Vector3(0, 1.2, 0)).add(camOffset);
-      camera.position.lerp(targetCamPos, Math.min(1, dt * 10));
-      const lookAt = player.position.clone().add(new THREE.Vector3(0, 1.3, 0));
-      camera.lookAt(lookAt);
+      const camAnchor = player.position.clone().add(new THREE.Vector3(0, 1.4, 0));
+      let targetCamPos = camAnchor.clone().add(camOffset);
+      if (stageColliderRef.mesh) {
+        const dir = targetCamPos.clone().sub(camAnchor);
+        const len = dir.length();
+        dir.normalize();
+        wallRay.set(camAnchor, dir);
+        wallRay.far = len;
+        const hits = wallRay.intersectObject(stageColliderRef.mesh, true);
+        if (hits.length > 0) {
+          const safe = Math.max(0.6, hits[0].distance - 0.2);
+          targetCamPos = camAnchor.clone().add(dir.multiplyScalar(safe));
+        }
+      }
+      camera.position.lerp(targetCamPos, Math.min(1, dt * 12));
+      camera.lookAt(camAnchor);
 
       // VRM update
       if (vrm) {
