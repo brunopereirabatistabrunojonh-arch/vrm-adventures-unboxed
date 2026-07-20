@@ -612,7 +612,6 @@ export default function Game() {
     // (walls, obstacles) without hand-authored primitives.
     const stageColliderRef: { mesh: THREE.Object3D | null } = { mesh: null };
     const groundRay = new THREE.Raycaster();
-    groundRay.firstHitOnly = true as unknown as boolean; // no-op if unsupported
     const wallRay = new THREE.Raycaster();
     const CAPSULE_RADIUS = 0.35;
     const CAPSULE_HEIGHT = 1.7; // total; feet at 0, head at CAPSULE_HEIGHT
