@@ -15,6 +15,7 @@ import mainBaseColorAsset from "@/assets/arena/Main_Base_Base_color.png.asset.js
 import mainMetallicAsset from "@/assets/arena/Main_Base_Metallic.png.asset.json";
 import mainRoughnessAsset from "@/assets/arena/Main_Base_Roughness.png.asset.json";
 import { loadMixamoAnimation } from "@/lib/loadMixamoAnimation";
+import BunnyMenu from "@/components/BunnyMenu";
 
 type Enemy = {
   mesh: THREE.Mesh;
