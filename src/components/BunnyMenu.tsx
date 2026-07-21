@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import bunnyGirl from "@/assets/bunny-girl.png";
 
 type Screen = "main" | "shop" | "settings" | "ranking" | "exit";
 
@@ -101,6 +102,18 @@ export default function BunnyMenu({ open, currentKills, onPlay }: Props) {
     <div className="absolute inset-0 z-30 flex flex-col overflow-hidden">
       {/* Backdrop */}
       <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/60 to-black/85 backdrop-blur-sm" />
+
+      {/* Bunny mascot */}
+      {screen === "main" && (
+        <img
+          src={bunnyGirl}
+          alt="Bunny Arena mascot"
+          width={768}
+          height={1280}
+          className="pointer-events-none absolute bottom-0 right-[-8%] z-[5] h-[85%] w-auto max-w-none select-none drop-shadow-[0_10px_40px_rgba(236,72,153,0.45)] sm:right-[-4%] sm:h-[92%]"
+          style={{ WebkitMaskImage: "linear-gradient(to bottom, black 88%, transparent 100%)", maskImage: "linear-gradient(to bottom, black 88%, transparent 100%)" }}
+        />
+      )}
 
       <div className="relative z-10 flex h-full flex-col items-center justify-start px-4 py-6 text-white">
         {screen === "main" && (
