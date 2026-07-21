@@ -412,6 +412,7 @@ export default function Game() {
   const [loading, setLoading] = useState(true);
   const [score, setScore] = useState(0);
   const [dead, setDead] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(true);
 
   // Mobile input bridges (read by the game loop)
   const moveRef = useRef({ x: 0, y: 0 }); // joystick vector, -1..1, y forward
@@ -1267,6 +1268,27 @@ export default function Game() {
 
       {/* Crosshair */}
       <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/80" />
+
+      {/* Pause / open menu */}
+      {!menuOpen && (
+        <button
+          onClick={() => setMenuOpen(true)}
+          aria-label="Abrir menu"
+          className="absolute right-4 top-4 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-white/30 bg-black/60 text-white shadow-lg backdrop-blur hover:bg-black/80"
+        >
+          <span className="flex flex-col gap-1">
+            <span className="block h-0.5 w-5 bg-white" />
+            <span className="block h-0.5 w-5 bg-white" />
+            <span className="block h-0.5 w-5 bg-white" />
+          </span>
+        </button>
+      )}
+
+      <BunnyMenu
+        open={menuOpen}
+        currentKills={score}
+        onPlay={() => setMenuOpen(false)}
+      />
     </div>
   );
 }
