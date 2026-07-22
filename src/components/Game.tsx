@@ -415,38 +415,95 @@ export default function Game() {
   const [menuOpen, setMenuOpen] = useState(true);
   const [isPortrait, setIsPortrait] = useState(false);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
+  const [orientationDismissed, setOrientationDismissed] = useState(false);
 
   // Track portrait/landscape on mobile so we can force a landscape UI.
+  // Uses matchMedia (most reliable across Android Chrome / WebView / iOS Safari)
+  // with resize + orientationchange as fallbacks.
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const ua = navigator.userAgent || "";
     const touch = "ontouchstart" in window || (navigator as any).maxTouchPoints > 0;
+    const uaMobile = /Android|iPhone|iPod|IEMobile|BlackBerry|Opera Mini/i.test(ua);
     const smallScreen = Math.min(window.innerWidth, window.innerHeight) < 900;
-    setIsMobileDevice(touch && smallScreen);
-    const check = () => setIsPortrait(window.innerHeight > window.innerWidth);
+    setIsMobileDevice(uaMobile || (touch && smallScreen));
+
+    const mql = window.matchMedia("(orientation: portrait)");
+    const check = () => {
+      // Prefer screen.orientation.type when available (most accurate on Android).
+      const so: any = (screen as any).orientation;
+      let portrait: boolean;
+      if (so && typeof so.type === "string") {
+        portrait = so.type.startsWith("portrait");
+      } else if (typeof mql.matches === "boolean") {
+        portrait = mql.matches;
+      } else {
+        portrait = window.innerHeight > window.innerWidth;
+      }
+      setIsPortrait(portrait);
+    };
     check();
+
+    const onMql = () => check();
+    if (mql.addEventListener) mql.addEventListener("change", onMql);
+    else if ((mql as any).addListener) (mql as any).addListener(onMql);
+
     window.addEventListener("resize", check);
     window.addEventListener("orientationchange", check);
+    const so: any = (screen as any).orientation;
+    if (so && typeof so.addEventListener === "function") {
+      so.addEventListener("change", check);
+    }
+    // A short delayed re-check catches Android Chrome cases where innerWidth
+    // hasn't updated yet on the initial orientationchange fire.
+    const t = window.setTimeout(check, 300);
+
     return () => {
+      window.clearTimeout(t);
+      if (mql.removeEventListener) mql.removeEventListener("change", onMql);
+      else if ((mql as any).removeListener) (mql as any).removeListener(onMql);
       window.removeEventListener("resize", check);
       window.removeEventListener("orientationchange", check);
+      if (so && typeof so.removeEventListener === "function") {
+        so.removeEventListener("change", check);
+      }
     };
   }, []);
 
   // Best-effort request for fullscreen + landscape lock (browsers require a
   // user gesture — this runs when the player taps JOGAR / dismisses menu).
   const requestLandscape = () => {
+    const tryLock = () => {
+      try {
+        const so: any = (screen as any).orientation;
+        if (so && typeof so.lock === "function") {
+          return so.lock("landscape").catch(() => {});
+        }
+        // Legacy vendor-prefixed APIs (older Android WebViews).
+        const legacy =
+          (screen as any).lockOrientation ||
+          (screen as any).mozLockOrientation ||
+          (screen as any).msLockOrientation;
+        if (typeof legacy === "function") {
+          try { legacy.call(screen, "landscape"); } catch { /* noop */ }
+        }
+      } catch { /* noop */ }
+      return Promise.resolve();
+    };
     try {
       const el = document.documentElement as any;
-      const req = el.requestFullscreen || el.webkitRequestFullscreen;
-      if (req) {
-        req.call(el).then(() => {
-          const orientation = (screen as any).orientation;
-          if (orientation && typeof orientation.lock === "function") {
-            orientation.lock("landscape").catch(() => {});
-          }
-        }).catch(() => {});
+      const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+      const p = req ? req.call(el) : null;
+      if (p && typeof p.then === "function") {
+        p.then(tryLock).catch(tryLock);
+      } else {
+        tryLock();
       }
-    } catch { /* noop */ }
+    } catch {
+      tryLock();
+    }
+    // Allow the game to run regardless of whether the lock succeeded.
+    setOrientationDismissed(true);
   };
 
   // Mobile input bridges (read by the game loop)
@@ -1328,8 +1385,10 @@ export default function Game() {
         }}
       />
 
-      {/* Force landscape on mobile — rotate device overlay */}
-      {isMobileDevice && isPortrait && (
+      {/* Force landscape on mobile — rotate device overlay.
+          Only shows when actually in portrait; user can bypass if lock
+          isn't supported on their browser. */}
+      {isMobileDevice && isPortrait && !orientationDismissed && (
         <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-black text-white">
           <div className="animate-pulse text-6xl">📱↻</div>
           <div className="text-lg font-bold tracking-wider">Gire seu dispositivo</div>
@@ -1339,6 +1398,12 @@ export default function Game() {
             className="mt-4 rounded-full border border-white/30 bg-white/10 px-6 py-2 text-sm font-semibold backdrop-blur active:scale-95"
           >
             Ativar modo paisagem
+          </button>
+          <button
+            onClick={() => setOrientationDismissed(true)}
+            className="rounded-full px-4 py-1 text-xs opacity-70 underline"
+          >
+            Continuar mesmo assim
           </button>
         </div>
       )}
