@@ -1385,8 +1385,10 @@ export default function Game() {
         }}
       />
 
-      {/* Force landscape on mobile — rotate device overlay */}
-      {isMobileDevice && isPortrait && (
+      {/* Force landscape on mobile — rotate device overlay.
+          Only shows when actually in portrait; user can bypass if lock
+          isn't supported on their browser. */}
+      {isMobileDevice && isPortrait && !orientationDismissed && (
         <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-black text-white">
           <div className="animate-pulse text-6xl">📱↻</div>
           <div className="text-lg font-bold tracking-wider">Gire seu dispositivo</div>
@@ -1396,6 +1398,12 @@ export default function Game() {
             className="mt-4 rounded-full border border-white/30 bg-white/10 px-6 py-2 text-sm font-semibold backdrop-blur active:scale-95"
           >
             Ativar modo paisagem
+          </button>
+          <button
+            onClick={() => setOrientationDismissed(true)}
+            className="rounded-full px-4 py-1 text-xs opacity-70 underline"
+          >
+            Continuar mesmo assim
           </button>
         </div>
       )}
