@@ -413,6 +413,41 @@ export default function Game() {
   const [score, setScore] = useState(0);
   const [dead, setDead] = useState(false);
   const [menuOpen, setMenuOpen] = useState(true);
+  const [isPortrait, setIsPortrait] = useState(false);
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
+
+  // Track portrait/landscape on mobile so we can force a landscape UI.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const touch = "ontouchstart" in window || (navigator as any).maxTouchPoints > 0;
+    const smallScreen = Math.min(window.innerWidth, window.innerHeight) < 900;
+    setIsMobileDevice(touch && smallScreen);
+    const check = () => setIsPortrait(window.innerHeight > window.innerWidth);
+    check();
+    window.addEventListener("resize", check);
+    window.addEventListener("orientationchange", check);
+    return () => {
+      window.removeEventListener("resize", check);
+      window.removeEventListener("orientationchange", check);
+    };
+  }, []);
+
+  // Best-effort request for fullscreen + landscape lock (browsers require a
+  // user gesture — this runs when the player taps JOGAR / dismisses menu).
+  const requestLandscape = () => {
+    try {
+      const el = document.documentElement as any;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (req) {
+        req.call(el).then(() => {
+          const orientation = (screen as any).orientation;
+          if (orientation && typeof orientation.lock === "function") {
+            orientation.lock("landscape").catch(() => {});
+          }
+        }).catch(() => {});
+      }
+    } catch { /* noop */ }
+  };
 
   // Mobile input bridges (read by the game loop)
   const moveRef = useRef({ x: 0, y: 0 }); // joystick vector, -1..1, y forward
