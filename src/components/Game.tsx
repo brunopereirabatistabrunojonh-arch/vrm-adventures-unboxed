@@ -1255,20 +1255,20 @@ export default function Game() {
       )}
 
       {/* HUD */}
-      <div className="pointer-events-none absolute left-4 top-4 z-10 w-64 space-y-2">
-        <div className="rounded-md bg-black/50 p-2 backdrop-blur">
-          <div className="mb-1 flex items-center justify-between text-xs font-semibold text-white">
+      <div className="pointer-events-none absolute left-2 top-2 z-10 w-44 space-y-1.5 sm:left-4 sm:top-4 sm:w-64 sm:space-y-2">
+        <div className="rounded-md bg-black/50 p-1.5 backdrop-blur sm:p-2">
+          <div className="mb-1 flex items-center justify-between text-[10px] font-semibold text-white sm:text-xs">
             <span>HP</span>
             <span>{Math.max(0, Math.round(hp))}/{PLAYER_MAX_HP}</span>
           </div>
-          <div className="h-3 w-full overflow-hidden rounded bg-white/20">
+          <div className="h-2 w-full overflow-hidden rounded bg-white/20 sm:h-3">
             <div
               className="h-full bg-red-500 transition-all"
               style={{ width: `${hpPct}%` }}
             />
           </div>
         </div>
-        <div className="rounded-md bg-black/50 px-3 py-2 text-sm font-semibold text-white backdrop-blur">
+        <div className="rounded-md bg-black/50 px-2 py-1 text-xs font-semibold text-white backdrop-blur sm:px-3 sm:py-2 sm:text-sm">
           Kills: {score}
         </div>
       </div>
@@ -1322,8 +1322,26 @@ export default function Game() {
       <BunnyMenu
         open={menuOpen}
         currentKills={score}
-        onPlay={() => setMenuOpen(false)}
+        onPlay={() => {
+          if (isMobileDevice) requestLandscape();
+          setMenuOpen(false);
+        }}
       />
+
+      {/* Force landscape on mobile — rotate device overlay */}
+      {isMobileDevice && isPortrait && (
+        <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-black text-white">
+          <div className="animate-pulse text-6xl">📱↻</div>
+          <div className="text-lg font-bold tracking-wider">Gire seu dispositivo</div>
+          <div className="text-sm opacity-80">Este jogo funciona apenas no modo paisagem</div>
+          <button
+            onClick={requestLandscape}
+            className="mt-4 rounded-full border border-white/30 bg-white/10 px-6 py-2 text-sm font-semibold backdrop-blur active:scale-95"
+          >
+            Ativar modo paisagem
+          </button>
+        </div>
+      )}
     </div>
   );
 }
