@@ -1419,7 +1419,7 @@ function MobileControls({
     "select-none touch-none flex items-center justify-center rounded-full font-bold text-white shadow-lg active:scale-95 transition-transform";
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-20 md:hidden">
+    <div className="pointer-events-none absolute inset-0 z-20 md:hidden" style={{ paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
       {/* Joystick */}
       <div
         ref={padRef}
@@ -1427,10 +1427,10 @@ function MobileControls({
         onTouchMove={onPadTouchMove}
         onTouchEnd={onPadTouchEnd}
         onTouchCancel={onPadTouchEnd}
-        className="pointer-events-auto absolute bottom-6 left-6 h-36 w-36 touch-none rounded-full border-2 border-white/40 bg-white/10 backdrop-blur"
+        className="pointer-events-auto absolute bottom-4 left-4 h-32 w-32 touch-none rounded-full border-2 border-white/40 bg-white/10 backdrop-blur sm:bottom-6 sm:left-6 sm:h-36 sm:w-36"
       >
         <div
-          className="absolute h-16 w-16 rounded-full bg-white/70 shadow"
+          className="absolute h-14 w-14 rounded-full bg-white/70 shadow sm:h-16 sm:w-16"
           style={{
             left: "50%",
             top: "50%",
@@ -1441,9 +1441,9 @@ function MobileControls({
       </div>
 
       {/* Action buttons */}
-      <div className="pointer-events-auto absolute bottom-8 right-6 flex flex-col items-end gap-3">
+      <div className="pointer-events-auto absolute bottom-4 right-4 flex flex-col items-end gap-2 sm:bottom-8 sm:right-6 sm:gap-3">
         <button
-          className={`${btnBase} h-20 w-20 bg-red-500/80 text-lg`}
+          className={`${btnBase} h-16 w-16 bg-red-500/80 text-base sm:h-20 sm:w-20 sm:text-lg`}
           onTouchStart={(e) => {
             e.preventDefault();
             attackRef.current = true;
@@ -1451,9 +1451,9 @@ function MobileControls({
         >
           ATK
         </button>
-        <div className="flex gap-3">
+        <div className="flex gap-2 sm:gap-3">
           <button
-            className={`${btnBase} h-16 w-16 text-sm ${
+            className={`${btnBase} h-14 w-14 text-xs sm:h-16 sm:w-16 sm:text-sm ${
               runActive ? "bg-yellow-400/90 text-black" : "bg-yellow-500/80"
             }`}
             onTouchStart={(e) => {
@@ -1474,7 +1474,7 @@ function MobileControls({
             RUN
           </button>
           <button
-            className={`${btnBase} h-16 w-16 bg-blue-500/80 text-sm`}
+            className={`${btnBase} h-14 w-14 bg-blue-500/80 text-xs sm:h-16 sm:w-16 sm:text-sm`}
             onTouchStart={(e) => {
               e.preventDefault();
               jumpRef.current = true;
@@ -1486,8 +1486,8 @@ function MobileControls({
       </div>
 
       {/* Mobile hint */}
-      <div className="pointer-events-none absolute right-2 top-2 max-w-[60%] rounded bg-black/50 p-2 text-[10px] leading-tight text-white backdrop-blur">
-        Arraste a tela: girar câmera • Joystick: mover • RUN/JUMP/ATK
+      <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded bg-black/40 px-2 py-1 text-[9px] leading-tight text-white/80 backdrop-blur">
+        Arraste a tela para girar a câmera
       </div>
     </div>
   );
