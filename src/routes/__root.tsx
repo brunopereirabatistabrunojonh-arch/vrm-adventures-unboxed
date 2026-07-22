@@ -77,14 +77,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "VRM Hero — 3D Browser Game" },
+      { name: "description", content: "Explore an open 3D world, fight enemies and survive as your VRM hero." },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "VRM Hero — 3D Browser Game" },
+      { property: "og:description", content: "Explore an open 3D world, fight enemies and survive as your VRM hero." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "VRM Hero — 3D Browser Game" },
+      { name: "twitter:description", content: "Explore an open 3D world, fight enemies and survive as your VRM hero." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/dec3f4e8-6bae-40f5-ba51-bb16402600aa/id-preview-7eabd5c2--8a2e4997-2c70-431d-9f22-6dabfd95cbaf.lovable.app-1781569486863.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/dec3f4e8-6bae-40f5-ba51-bb16402600aa/id-preview-7eabd5c2--8a2e4997-2c70-431d-9f22-6dabfd95cbaf.lovable.app-1781569486863.png" },
     ],
     links: [
       {
