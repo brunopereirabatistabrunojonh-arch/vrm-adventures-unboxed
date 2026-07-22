@@ -413,6 +413,41 @@ export default function Game() {
   const [score, setScore] = useState(0);
   const [dead, setDead] = useState(false);
   const [menuOpen, setMenuOpen] = useState(true);
+  const [isPortrait, setIsPortrait] = useState(false);
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
+
+  // Track portrait/landscape on mobile so we can force a landscape UI.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const touch = "ontouchstart" in window || (navigator as any).maxTouchPoints > 0;
+    const smallScreen = Math.min(window.innerWidth, window.innerHeight) < 900;
+    setIsMobileDevice(touch && smallScreen);
+    const check = () => setIsPortrait(window.innerHeight > window.innerWidth);
+    check();
+    window.addEventListener("resize", check);
+    window.addEventListener("orientationchange", check);
+    return () => {
+      window.removeEventListener("resize", check);
+      window.removeEventListener("orientationchange", check);
+    };
+  }, []);
+
+  // Best-effort request for fullscreen + landscape lock (browsers require a
+  // user gesture — this runs when the player taps JOGAR / dismisses menu).
+  const requestLandscape = () => {
+    try {
+      const el = document.documentElement as any;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (req) {
+        req.call(el).then(() => {
+          const orientation = (screen as any).orientation;
+          if (orientation && typeof orientation.lock === "function") {
+            orientation.lock("landscape").catch(() => {});
+          }
+        }).catch(() => {});
+      }
+    } catch { /* noop */ }
+  };
 
   // Mobile input bridges (read by the game loop)
   const moveRef = useRef({ x: 0, y: 0 }); // joystick vector, -1..1, y forward
@@ -1220,20 +1255,20 @@ export default function Game() {
       )}
 
       {/* HUD */}
-      <div className="pointer-events-none absolute left-4 top-4 z-10 w-64 space-y-2">
-        <div className="rounded-md bg-black/50 p-2 backdrop-blur">
-          <div className="mb-1 flex items-center justify-between text-xs font-semibold text-white">
+      <div className="pointer-events-none absolute left-2 top-2 z-10 w-44 space-y-1.5 sm:left-4 sm:top-4 sm:w-64 sm:space-y-2">
+        <div className="rounded-md bg-black/50 p-1.5 backdrop-blur sm:p-2">
+          <div className="mb-1 flex items-center justify-between text-[10px] font-semibold text-white sm:text-xs">
             <span>HP</span>
             <span>{Math.max(0, Math.round(hp))}/{PLAYER_MAX_HP}</span>
           </div>
-          <div className="h-3 w-full overflow-hidden rounded bg-white/20">
+          <div className="h-2 w-full overflow-hidden rounded bg-white/20 sm:h-3">
             <div
               className="h-full bg-red-500 transition-all"
               style={{ width: `${hpPct}%` }}
             />
           </div>
         </div>
-        <div className="rounded-md bg-black/50 px-3 py-2 text-sm font-semibold text-white backdrop-blur">
+        <div className="rounded-md bg-black/50 px-2 py-1 text-xs font-semibold text-white backdrop-blur sm:px-3 sm:py-2 sm:text-sm">
           Kills: {score}
         </div>
       </div>
@@ -1287,8 +1322,26 @@ export default function Game() {
       <BunnyMenu
         open={menuOpen}
         currentKills={score}
-        onPlay={() => setMenuOpen(false)}
+        onPlay={() => {
+          if (isMobileDevice) requestLandscape();
+          setMenuOpen(false);
+        }}
       />
+
+      {/* Force landscape on mobile — rotate device overlay */}
+      {isMobileDevice && isPortrait && (
+        <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-black text-white">
+          <div className="animate-pulse text-6xl">📱↻</div>
+          <div className="text-lg font-bold tracking-wider">Gire seu dispositivo</div>
+          <div className="text-sm opacity-80">Este jogo funciona apenas no modo paisagem</div>
+          <button
+            onClick={requestLandscape}
+            className="mt-4 rounded-full border border-white/30 bg-white/10 px-6 py-2 text-sm font-semibold backdrop-blur active:scale-95"
+          >
+            Ativar modo paisagem
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1366,7 +1419,7 @@ function MobileControls({
     "select-none touch-none flex items-center justify-center rounded-full font-bold text-white shadow-lg active:scale-95 transition-transform";
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-20 md:hidden">
+    <div className="pointer-events-none absolute inset-0 z-20 md:hidden" style={{ paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
       {/* Joystick */}
       <div
         ref={padRef}
@@ -1374,10 +1427,10 @@ function MobileControls({
         onTouchMove={onPadTouchMove}
         onTouchEnd={onPadTouchEnd}
         onTouchCancel={onPadTouchEnd}
-        className="pointer-events-auto absolute bottom-6 left-6 h-36 w-36 touch-none rounded-full border-2 border-white/40 bg-white/10 backdrop-blur"
+        className="pointer-events-auto absolute bottom-4 left-4 h-32 w-32 touch-none rounded-full border-2 border-white/40 bg-white/10 backdrop-blur sm:bottom-6 sm:left-6 sm:h-36 sm:w-36"
       >
         <div
-          className="absolute h-16 w-16 rounded-full bg-white/70 shadow"
+          className="absolute h-14 w-14 rounded-full bg-white/70 shadow sm:h-16 sm:w-16"
           style={{
             left: "50%",
             top: "50%",
@@ -1388,9 +1441,9 @@ function MobileControls({
       </div>
 
       {/* Action buttons */}
-      <div className="pointer-events-auto absolute bottom-8 right-6 flex flex-col items-end gap-3">
+      <div className="pointer-events-auto absolute bottom-4 right-4 flex flex-col items-end gap-2 sm:bottom-8 sm:right-6 sm:gap-3">
         <button
-          className={`${btnBase} h-20 w-20 bg-red-500/80 text-lg`}
+          className={`${btnBase} h-16 w-16 bg-red-500/80 text-base sm:h-20 sm:w-20 sm:text-lg`}
           onTouchStart={(e) => {
             e.preventDefault();
             attackRef.current = true;
@@ -1398,9 +1451,9 @@ function MobileControls({
         >
           ATK
         </button>
-        <div className="flex gap-3">
+        <div className="flex gap-2 sm:gap-3">
           <button
-            className={`${btnBase} h-16 w-16 text-sm ${
+            className={`${btnBase} h-14 w-14 text-xs sm:h-16 sm:w-16 sm:text-sm ${
               runActive ? "bg-yellow-400/90 text-black" : "bg-yellow-500/80"
             }`}
             onTouchStart={(e) => {
@@ -1421,7 +1474,7 @@ function MobileControls({
             RUN
           </button>
           <button
-            className={`${btnBase} h-16 w-16 bg-blue-500/80 text-sm`}
+            className={`${btnBase} h-14 w-14 bg-blue-500/80 text-xs sm:h-16 sm:w-16 sm:text-sm`}
             onTouchStart={(e) => {
               e.preventDefault();
               jumpRef.current = true;
@@ -1433,8 +1486,8 @@ function MobileControls({
       </div>
 
       {/* Mobile hint */}
-      <div className="pointer-events-none absolute right-2 top-2 max-w-[60%] rounded bg-black/50 p-2 text-[10px] leading-tight text-white backdrop-blur">
-        Arraste a tela: girar câmera • Joystick: mover • RUN/JUMP/ATK
+      <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded bg-black/40 px-2 py-1 text-[9px] leading-tight text-white/80 backdrop-blur">
+        Arraste a tela para girar a câmera
       </div>
     </div>
   );
