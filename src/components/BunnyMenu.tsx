@@ -1,16 +1,43 @@
 import { useEffect, useState } from "react";
 import bunnyGirl from "@/assets/bunny-girl.png";
+import galaxiaAsset from "@/assets/galaxia_anime_girl.glb.asset.json";
 
 type Screen = "main" | "shop" | "settings" | "ranking" | "exit";
 
-type Skin = { id: string; name: string; price: number; color: string };
+type Skin = {
+  id: string;
+  name: string;
+  price: number;
+  color: string;
+  // When set, equipping this skin swaps the 3D player model to this URL
+  // (keeps the same Mixamo animations if the model has a VRM humanoid rig).
+  modelUrl?: string;
+};
 const SKINS: Skin[] = [
   { id: "classic", name: "Bunny Classic", price: 0, color: "#111" },
+  { id: "galaxia", name: "Galáxia Anime Girl", price: 300, color: "#8b5cf6", modelUrl: galaxiaAsset.url },
   { id: "rose", name: "Rose Gold", price: 100, color: "#f9a8d4" },
   { id: "neon", name: "Neon Cyber", price: 250, color: "#22d3ee" },
   { id: "royal", name: "Royal Purple", price: 500, color: "#a855f7" },
   { id: "ember", name: "Ember", price: 750, color: "#f97316" },
 ];
+
+const LS_CHARACTER_URL = "bunny.characterUrl";
+function applyCharacterSkin(id: string) {
+  const s = SKINS.find((x) => x.id === id);
+  const url = s?.modelUrl ?? "";
+  try {
+    if (url) localStorage.setItem(LS_CHARACTER_URL, url);
+    else localStorage.removeItem(LS_CHARACTER_URL);
+  } catch {
+    /* noop */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("bunny:character", { detail: { url } }));
+  } catch {
+    /* noop */
+  }
+}
 
 const LS = {
   best: "bunny.bestKills",
@@ -141,6 +168,7 @@ export default function BunnyMenu({ open, currentKills, onPlay }: Props) {
             onEquip={(id) => {
               setSkin(id);
               writeJSON(LS.skin, id);
+              applyCharacterSkin(id);
             }}
             onEarn={() => {
               const nc = coins + 50;

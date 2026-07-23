@@ -4,6 +4,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { VRMLoaderPlugin, VRMUtils, type VRM } from "@pixiv/three-vrm";
 import characterAsset from "@/assets/character.vrm.asset.json";
+import galaxiaAsset from "@/assets/galaxia_anime_girl.glb.asset.json";
 import joggingAsset from "@/assets/Jogging.fbx.asset.json";
 import walkingAsset from "@/assets/Walking.fbx.asset.json";
 import stageFbxAsset from "@/assets/arena/Stage0.fbx.asset.json";
@@ -768,11 +769,14 @@ export default function Game() {
     let mixer: THREE.AnimationMixer | null = null;
     let runAction: THREE.AnimationAction | null = null;
     let walkAction: THREE.AnimationAction | null = null;
+    let currentCharacterRoot: THREE.Object3D | null = null;
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
-    loader.load(
-      characterAsset.url,
-      (gltf) => {
+
+    const loadCharacter = (url: string) => {
+      loader.load(
+        url,
+        (gltf) => {
         const loadedVrm = gltf.userData.vrm as VRM | undefined;
         console.log("[Game] GLTF loaded", { hasVrm: !!loadedVrm, scene: gltf.scene });
         const sceneRoot = loadedVrm ? loadedVrm.scene : gltf.scene;
@@ -800,9 +804,25 @@ export default function Game() {
         const box2 = new THREE.Box3().setFromObject(sceneRoot);
         sceneRoot.position.y -= box2.min.y;
         sceneRoot.rotation.y = Math.PI;
-        player.remove(placeholder);
+        if (placeholder.parent) player.remove(placeholder);
+        if (currentCharacterRoot) {
+          player.remove(currentCharacterRoot);
+          currentCharacterRoot.traverse((o) => {
+            const m = o as THREE.Mesh;
+            if (m.geometry) m.geometry.dispose?.();
+            const mat = m.material as THREE.Material | THREE.Material[] | undefined;
+            if (Array.isArray(mat)) mat.forEach((x) => x.dispose?.());
+            else if (mat) mat.dispose?.();
+          });
+        }
         player.add(sceneRoot);
-        if (loadedVrm) vrm = loadedVrm;
+        currentCharacterRoot = sceneRoot;
+        vrm = loadedVrm ?? null;
+        // Reset previous mixer/actions since bones/rig changed.
+        mixer = null;
+        runAction = null;
+        walkAction = null;
+        animState.smoothed.clear();
         if (loadedVrm) {
           // Single shared mixer — created up front to avoid a race where the
           // walk and run callbacks each construct one and orphan the other.
@@ -833,17 +853,32 @@ export default function Game() {
             .catch((err) => console.error("[Game] Walking load failed", err));
         }
         setLoading(false);
-      },
-      (xhr) => {
+        },
+        (xhr) => {
         if (xhr.lengthComputable) {
-          console.log(`[Game] VRM ${(xhr.loaded / xhr.total * 100).toFixed(0)}%`);
+          console.log(`[Game] character ${(xhr.loaded / xhr.total * 100).toFixed(0)}%`);
         }
-      },
-      (err) => {
-        console.error("VRM load failed", err);
+        },
+        (err) => {
+        console.error("Character load failed", err);
         setLoading(false);
-      }
-    );
+        }
+      );
+    };
+
+    // Initial character = user-equipped selection (persisted by BunnyMenu),
+    // falling back to the default VRM.
+    const savedUrl = (() => {
+      try { return localStorage.getItem("bunny.characterUrl"); } catch { return null; }
+    })();
+    loadCharacter(savedUrl || characterAsset.url);
+
+    const onCharacterChange = (e: Event) => {
+      const url = (e as CustomEvent<{ url?: string }>).detail?.url || characterAsset.url;
+      setLoading(true);
+      loadCharacter(url);
+    };
+    window.addEventListener("bunny:character", onCharacterChange);
 
     // Enemies
     const enemies: Enemy[] = [];
@@ -1283,6 +1318,7 @@ export default function Game() {
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("bunny:character", onCharacterChange);
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("resize", onResize);
