@@ -845,8 +845,14 @@ export default function Game() {
       loader.load(
         url,
         (gltf) => {
-        const loadedVrm = gltf.userData.vrm as VRM | undefined;
-        console.log("[Game] GLTF loaded", { hasVrm: !!loadedVrm, scene: gltf.scene });
+        let loadedVrm = gltf.userData.vrm as VRM | undefined;
+        // Fallback: many J_Bip_* GLBs ship without the VRM extension. Build a
+        // minimal humanoid wrapper so animations + scaling apply the same way.
+        if (!loadedVrm) {
+          const fake = buildFakeVrmFromJBip(gltf.scene);
+          if (fake) loadedVrm = fake;
+        }
+        console.log("[Game] GLTF loaded", { hasVrm: !!gltf.userData.vrm, hasFakeVrm: !!loadedVrm && !gltf.userData.vrm, scene: gltf.scene });
         const sceneRoot = loadedVrm ? loadedVrm.scene : gltf.scene;
         try {
           VRMUtils.removeUnnecessaryVertices(gltf.scene);
@@ -858,16 +864,31 @@ export default function Game() {
           o.castShadow = true;
           o.frustumCulled = false;
         });
-        // Compute bounding box to auto-scale & ground the model
-        const box = new THREE.Box3().setFromObject(sceneRoot);
-        const size = new THREE.Vector3();
-        box.getSize(size);
-        console.log("[Game] model size", size);
+        // Auto-scale: prefer measuring the head bone height (robust for
+        // skinned meshes where Box3.setFromObject can return inflated sizes
+        // from the bind pose). Fall back to bounding box otherwise.
+        sceneRoot.scale.setScalar(1);
+        sceneRoot.position.set(0, 0, 0);
+        sceneRoot.updateMatrixWorld(true);
         const targetHeight = 1.7;
-        if (size.y > 0.01) {
-          const s = targetHeight / size.y;
-          sceneRoot.scale.setScalar(s);
+        const headBone = loadedVrm?.humanoid?.getNormalizedBoneNode("head");
+        const tmp = new THREE.Vector3();
+        let measured = 0;
+        if (headBone) {
+          measured = headBone.getWorldPosition(tmp).y - sceneRoot.getWorldPosition(new THREE.Vector3()).y;
+          measured = Math.abs(measured) * 1.10; // head bone sits ~10% below top of skull
         }
+        if (!measured || measured < 0.1) {
+          const box = new THREE.Box3().setFromObject(sceneRoot);
+          const size = new THREE.Vector3();
+          box.getSize(size);
+          measured = size.y;
+        }
+        console.log("[Game] measured height", measured);
+        if (measured > 0.01) {
+          sceneRoot.scale.setScalar(targetHeight / measured);
+        }
+        sceneRoot.updateMatrixWorld(true);
         // Re-measure & lift so feet sit on y=0
         const box2 = new THREE.Box3().setFromObject(sceneRoot);
         sceneRoot.position.y -= box2.min.y;
