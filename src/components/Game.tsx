@@ -18,6 +18,74 @@ import mainRoughnessAsset from "@/assets/arena/Main_Base_Roughness.png.asset.jso
 import { loadMixamoAnimation } from "@/lib/loadMixamoAnimation";
 import BunnyMenu from "@/components/BunnyMenu";
 
+// ---- Fake VRM humanoid wrapper -------------------------------------------
+// Some character GLBs (e.g. VRoid exports converted to plain glTF) use the
+// standard J_Bip_* bone names but ship without the VRM extension, so
+// VRMLoaderPlugin returns nothing. To keep the same animation pipeline
+// (Mixamo retarget + procedural pose) working, we synthesize a minimal
+// object with the same shape our code expects from VRM.
+const J_BIP_TO_VRM: Record<string, string> = {
+  hips: "C_Hips",
+  spine: "C_Spine",
+  chest: "C_Chest",
+  upperChest: "C_UpperChest",
+  neck: "C_Neck",
+  head: "C_Head",
+  leftShoulder: "L_Shoulder",
+  leftUpperArm: "L_UpperArm",
+  leftLowerArm: "L_LowerArm",
+  leftHand: "L_Hand",
+  rightShoulder: "R_Shoulder",
+  rightUpperArm: "R_UpperArm",
+  rightLowerArm: "R_LowerArm",
+  rightHand: "R_Hand",
+  leftUpperLeg: "L_UpperLeg",
+  leftLowerLeg: "L_LowerLeg",
+  leftFoot: "L_Foot",
+  leftToes: "L_ToeBase",
+  rightUpperLeg: "R_UpperLeg",
+  rightLowerLeg: "R_LowerLeg",
+  rightFoot: "R_Foot",
+  rightToes: "R_ToeBase",
+};
+
+function buildFakeVrmFromJBip(scene: THREE.Object3D): VRM | null {
+  const boneMap = new Map<string, THREE.Object3D>();
+  // Index by suffix "C_Hips" from names like "J_Bip_C_Hips_031"
+  scene.traverse((o) => {
+    const n = o.name || "";
+    const m = n.match(/^J_Bip_([LRC]_[A-Za-z]+)/);
+    if (m) {
+      const key = m[1];
+      if (!boneMap.has(key)) boneMap.set(key, o);
+    }
+  });
+  if (!boneMap.has("C_Hips")) return null;
+  const nodeFor: Record<string, THREE.Object3D | undefined> = {};
+  for (const [vrmName, jbip] of Object.entries(J_BIP_TO_VRM)) {
+    const b = boneMap.get(jbip);
+    if (b) nodeFor[vrmName] = b;
+  }
+  const humanoid = {
+    getNormalizedBoneNode(name: string) {
+      return nodeFor[name] ?? null;
+    },
+    setNormalizedPose(pose: Record<string, { rotation?: [number, number, number, number] }>) {
+      for (const [name, data] of Object.entries(pose)) {
+        const node = nodeFor[name];
+        if (node && data.rotation) node.quaternion.fromArray(data.rotation);
+      }
+    },
+  };
+  const fake = {
+    scene,
+    humanoid,
+    meta: { metaVersion: "0" },
+    update: (_dt: number) => {},
+  };
+  return fake as unknown as VRM;
+}
+
 type Enemy = {
   mesh: THREE.Mesh;
   hp: number;
