@@ -838,6 +838,7 @@ export default function Game() {
     let runAction: THREE.AnimationAction | null = null;
     let walkAction: THREE.AnimationAction | null = null;
     let currentCharacterRoot: THREE.Object3D | null = null;
+    let isRealVrm = false;
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
 
@@ -845,14 +846,19 @@ export default function Game() {
       loader.load(
         url,
         (gltf) => {
-        let loadedVrm = gltf.userData.vrm as VRM | undefined;
+        const realVrm = gltf.userData.vrm as VRM | undefined;
+        let loadedVrm = realVrm;
         // Fallback: many J_Bip_* GLBs ship without the VRM extension. Build a
-        // minimal humanoid wrapper so animations + scaling apply the same way.
+        // minimal humanoid wrapper so we can still measure scale via the head
+        // bone. We DO NOT retarget Mixamo animations onto this rig — the
+        // rest-pose transforms don't match and produce a distorted, twisted
+        // pose. Fake-VRM models render in their bind pose instead.
         if (!loadedVrm) {
           const fake = buildFakeVrmFromJBip(gltf.scene);
           if (fake) loadedVrm = fake;
         }
-        console.log("[Game] GLTF loaded", { hasVrm: !!gltf.userData.vrm, hasFakeVrm: !!loadedVrm && !gltf.userData.vrm, scene: gltf.scene });
+        const realVrmLoaded = !!realVrm;
+        console.log("[Game] GLTF loaded", { hasVrm: realVrmLoaded, hasFakeVrm: !!loadedVrm && !realVrmLoaded });
         const sceneRoot = loadedVrm ? loadedVrm.scene : gltf.scene;
         try {
           VRMUtils.removeUnnecessaryVertices(gltf.scene);
@@ -871,7 +877,12 @@ export default function Game() {
         sceneRoot.position.set(0, 0, 0);
         sceneRoot.updateMatrixWorld(true);
         const targetHeight = 1.7;
-        const headBone = loadedVrm?.humanoid?.getNormalizedBoneNode("head");
+        // Only trust the head bone measurement for real VRM rigs. On fake
+        // rigs it can sit far from the visual top of the mesh, producing a
+        // gigantic scale. Use the bounding box in that case.
+        const headBone = realVrmLoaded
+          ? loadedVrm?.humanoid?.getNormalizedBoneNode("head")
+          : null;
         const tmp = new THREE.Vector3();
         let measured = 0;
         if (headBone) {
@@ -907,12 +918,13 @@ export default function Game() {
         player.add(sceneRoot);
         currentCharacterRoot = sceneRoot;
         vrm = loadedVrm ?? null;
+        isRealVrm = realVrmLoaded;
         // Reset previous mixer/actions since bones/rig changed.
         mixer = null;
         runAction = null;
         walkAction = null;
         animState.smoothed.clear();
-        if (loadedVrm) {
+        if (loadedVrm && realVrmLoaded) {
           // Single shared mixer — created up front to avoid a race where the
           // walk and run callbacks each construct one and orphan the other.
           mixer = new THREE.AnimationMixer(loadedVrm.scene);
@@ -1380,15 +1392,21 @@ export default function Game() {
         }
         // Hand the body bones to the clip as soon as the player moves so the
         // procedural fallback doesn't fight the blend-in and cause stutter.
-        const runActive = moving || (runAction?.weight ?? 0) > 0.05 || (walkAction?.weight ?? 0) > 0.05;
-        updateCharacterAnimation(vrm, dt, {
-          speed: speedNow,
-          maxSpeed: 9,
-          attackTimer,
-          dead: playerState.dead,
-          runActive,
-        });
-        if (mixer) mixer.update(dt);
+        // Only run the procedural pose + Mixamo mixer on real VRM rigs.
+        // Non-VRM GLBs use a synthesized humanoid whose rest pose doesn't
+        // match Mixamo's, so retargeting distorts the model. Render them in
+        // their bind pose instead.
+        if (isRealVrm) {
+          const runActive = moving || (runAction?.weight ?? 0) > 0.05 || (walkAction?.weight ?? 0) > 0.05;
+          updateCharacterAnimation(vrm, dt, {
+            speed: speedNow,
+            maxSpeed: 9,
+            attackTimer,
+            dead: playerState.dead,
+            runActive,
+          });
+          if (mixer) mixer.update(dt);
+        }
         vrm.update(dt);
       }
 
