@@ -1630,7 +1630,7 @@ function MobileControls({
     "select-none touch-none flex items-center justify-center rounded-full font-bold text-white shadow-lg active:scale-95 transition-transform";
 
   return (
-    <div className={`pointer-events-none absolute inset-0 z-20 ${visible ? "" : "md:hidden hidden"}`} style={{ paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
+    <div className={`pointer-events-none absolute inset-0 z-20 ${visible ? "" : "hidden"}`} style={{ paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
       {/* Joystick */}
       <div
         ref={padRef}
