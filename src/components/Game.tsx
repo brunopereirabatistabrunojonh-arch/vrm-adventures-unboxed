@@ -1560,11 +1560,13 @@ function MobileControls({
   runRef,
   jumpRef,
   attackRef,
+  visible,
 }: {
   moveRef: React.MutableRefObject<{ x: number; y: number }>;
   runRef: React.MutableRefObject<boolean>;
   jumpRef: React.MutableRefObject<boolean>;
   attackRef: React.MutableRefObject<boolean>;
+  visible?: boolean;
 }) {
   const padRef = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState({ x: 0, y: 0, active: false });
