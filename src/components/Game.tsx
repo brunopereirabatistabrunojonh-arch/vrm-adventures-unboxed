@@ -924,7 +924,7 @@ export default function Game() {
         runAction = null;
         walkAction = null;
         animState.smoothed.clear();
-        if (loadedVrm && realVrmLoaded) {
+        if (loadedVrm) {
           // Single shared mixer — created up front to avoid a race where the
           // walk and run callbacks each construct one and orphan the other.
           mixer = new THREE.AnimationMixer(loadedVrm.scene);
@@ -1396,7 +1396,7 @@ export default function Game() {
         // Non-VRM GLBs use a synthesized humanoid whose rest pose doesn't
         // match Mixamo's, so retargeting distorts the model. Render them in
         // their bind pose instead.
-        if (isRealVrm) {
+        if (vrm) {
           const runActive = moving || (runAction?.weight ?? 0) > 0.05 || (walkAction?.weight ?? 0) > 0.05;
           updateCharacterAnimation(vrm, dt, {
             speed: speedNow,
@@ -1473,7 +1473,7 @@ export default function Game() {
         </div>
       </div>
 
-      <div className="pointer-events-none absolute right-4 top-4 z-10 hidden max-w-xs rounded-md bg-black/50 p-3 text-xs text-white backdrop-blur md:block">
+      <div className={`pointer-events-none absolute right-4 top-4 z-10 hidden max-w-xs rounded-md bg-black/50 p-3 text-xs text-white backdrop-blur ${isMobileDevice ? "" : "md:block"}`}>
         <div className="mb-1 font-bold">Controls</div>
         <div>Click to lock mouse</div>
         <div>WASD — Move</div>
@@ -1490,6 +1490,7 @@ export default function Game() {
         runRef={runRef}
         jumpRef={jumpRef}
         attackRef={attackRef}
+        visible={isMobileDevice}
       />
 
       {dead && (
@@ -1559,11 +1560,13 @@ function MobileControls({
   runRef,
   jumpRef,
   attackRef,
+  visible,
 }: {
   moveRef: React.MutableRefObject<{ x: number; y: number }>;
   runRef: React.MutableRefObject<boolean>;
   jumpRef: React.MutableRefObject<boolean>;
   attackRef: React.MutableRefObject<boolean>;
+  visible?: boolean;
 }) {
   const padRef = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState({ x: 0, y: 0, active: false });
@@ -1627,7 +1630,7 @@ function MobileControls({
     "select-none touch-none flex items-center justify-center rounded-full font-bold text-white shadow-lg active:scale-95 transition-transform";
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-20 md:hidden" style={{ paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
+    <div className={`pointer-events-none absolute inset-0 z-20 ${visible ? "" : "hidden"}`} style={{ paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
       {/* Joystick */}
       <div
         ref={padRef}
