@@ -924,7 +924,7 @@ export default function Game() {
         runAction = null;
         walkAction = null;
         animState.smoothed.clear();
-        if (loadedVrm && realVrmLoaded) {
+        if (loadedVrm) {
           // Single shared mixer — created up front to avoid a race where the
           // walk and run callbacks each construct one and orphan the other.
           mixer = new THREE.AnimationMixer(loadedVrm.scene);
