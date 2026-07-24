@@ -1392,15 +1392,21 @@ export default function Game() {
         }
         // Hand the body bones to the clip as soon as the player moves so the
         // procedural fallback doesn't fight the blend-in and cause stutter.
-        const runActive = moving || (runAction?.weight ?? 0) > 0.05 || (walkAction?.weight ?? 0) > 0.05;
-        updateCharacterAnimation(vrm, dt, {
-          speed: speedNow,
-          maxSpeed: 9,
-          attackTimer,
-          dead: playerState.dead,
-          runActive,
-        });
-        if (mixer) mixer.update(dt);
+        // Only run the procedural pose + Mixamo mixer on real VRM rigs.
+        // Non-VRM GLBs use a synthesized humanoid whose rest pose doesn't
+        // match Mixamo's, so retargeting distorts the model. Render them in
+        // their bind pose instead.
+        if (isRealVrm) {
+          const runActive = moving || (runAction?.weight ?? 0) > 0.05 || (walkAction?.weight ?? 0) > 0.05;
+          updateCharacterAnimation(vrm, dt, {
+            speed: speedNow,
+            maxSpeed: 9,
+            attackTimer,
+            dead: playerState.dead,
+            runActive,
+          });
+          if (mixer) mixer.update(dt);
+        }
         vrm.update(dt);
       }
 
