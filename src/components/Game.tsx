@@ -924,7 +924,7 @@ export default function Game() {
         runAction = null;
         walkAction = null;
         animState.smoothed.clear();
-        if (loadedVrm) {
+        if (loadedVrm && realVrmLoaded) {
           // Single shared mixer — created up front to avoid a race where the
           // walk and run callbacks each construct one and orphan the other.
           mixer = new THREE.AnimationMixer(loadedVrm.scene);
@@ -1396,7 +1396,7 @@ export default function Game() {
         // Non-VRM GLBs use a synthesized humanoid whose rest pose doesn't
         // match Mixamo's, so retargeting distorts the model. Render them in
         // their bind pose instead.
-        if (vrm) {
+        if (isRealVrm) {
           const runActive = moving || (runAction?.weight ?? 0) > 0.05 || (walkAction?.weight ?? 0) > 0.05;
           updateCharacterAnimation(vrm, dt, {
             speed: speedNow,
