@@ -1473,7 +1473,7 @@ export default function Game() {
         </div>
       </div>
 
-      <div className="pointer-events-none absolute right-4 top-4 z-10 hidden max-w-xs rounded-md bg-black/50 p-3 text-xs text-white backdrop-blur md:block">
+      <div className={`pointer-events-none absolute right-4 top-4 z-10 hidden max-w-xs rounded-md bg-black/50 p-3 text-xs text-white backdrop-blur ${isMobileDevice ? "" : "md:block"}`}>
         <div className="mb-1 font-bold">Controls</div>
         <div>Click to lock mouse</div>
         <div>WASD — Move</div>
@@ -1490,6 +1490,7 @@ export default function Game() {
         runRef={runRef}
         jumpRef={jumpRef}
         attackRef={attackRef}
+        visible={isMobileDevice}
       />
 
       {dead && (
