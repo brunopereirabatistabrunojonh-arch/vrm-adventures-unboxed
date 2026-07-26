@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import bunnyGirl from "@/assets/bunny-girl.png";
-import galaxiaAsset from "@/assets/galaxia_anime_girl.glb.asset.json";
+import galaxiaAsset from "@/assets/galaxia.vrm.asset.json";
 
 type Screen = "main" | "shop" | "settings" | "ranking" | "exit";
 
