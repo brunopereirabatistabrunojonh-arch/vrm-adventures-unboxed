@@ -1294,6 +1294,12 @@ export default function Game() {
         attackRef.current = false;
         tryAttack();
       }
+      if (kickRef.current) {
+        kickRef.current = false;
+        tryKick();
+      }
+      if (kickTimer > 0) kickTimer -= dt;
+      if (kickCooldown > 0) kickCooldown -= dt;
       // Gravity
       playerState.vel.y -= 22 * dt;
 
@@ -1424,7 +1430,12 @@ export default function Game() {
 
       // Camera follow (third person) with wall occlusion raycast so the
       // camera never clips through arena geometry.
-      const camDist = 5;
+      // Zoom (wheel / pinch), clamped
+      if (zoomRef.current !== 0) {
+        camDistCur = Math.max(1.2, Math.min(12, camDistCur + zoomRef.current));
+        zoomRef.current = 0;
+      }
+      const camDist = camDistCur;
       const camHeight = 2.2;
       const camOffset = new THREE.Vector3(
         -Math.sin(yaw) * camDist,
@@ -1456,8 +1467,9 @@ export default function Game() {
         // procedural fallback that caused stuttering ("travando").
         const moving = speedNow > 0.4;
         const sprinting = speedNow > 6.5;
-        const runTarget = sprinting ? 1 : 0;
-        const walkTarget = moving && !sprinting ? 1 : 0;
+        const kicking = kickTimer > 0;
+        const runTarget = kicking ? 0 : sprinting ? 1 : 0;
+        const walkTarget = kicking ? 0 : moving && !sprinting ? 1 : 0;
         const blendK = Math.min(1, dt * 12);
         if (runAction) {
           runAction.enabled = true;
@@ -1479,7 +1491,11 @@ export default function Game() {
         // their bind pose instead.
         if (isRealVrm) {
           const runActive = moving || (runAction?.weight ?? 0) > 0.05 || (walkAction?.weight ?? 0) > 0.05;
-          updateCharacterAnimation(vrm, dt, {
+          if (kickAction) {
+            kickAction.weight = lerp(kickAction.weight, kicking ? 1 : 0, Math.min(1, dt * 14));
+            if (!kicking && kickAction.weight < 0.02) kickAction.stop();
+          }
+          if (!kicking) updateCharacterAnimation(vrm, dt, {
             speed: speedNow,
             maxSpeed: 9,
             attackTimer,
