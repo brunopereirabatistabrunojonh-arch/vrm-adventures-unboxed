@@ -1060,6 +1060,7 @@ export default function Game() {
     let yaw = 0;
     let pitch = -0.2;
     let camDistCur = 5;
+    let camDistTarget = 5;
     const onMouseMove = (e: MouseEvent) => {
       if (document.pointerLockElement !== renderer.domElement) return;
       yaw -= e.movementX * 0.0025;
@@ -1245,16 +1246,18 @@ export default function Game() {
 
       // Apply touch look
       if (lookDeltaRef.current.x !== 0 || lookDeltaRef.current.y !== 0) {
-        yaw -= lookDeltaRef.current.x * 0.006;
-        pitch -= lookDeltaRef.current.y * 0.006;
-        pitch = Math.max(-1.0, Math.min(0.6, pitch));
+        // Drag right -> camera pans right; drag up -> look up.
+        yaw -= lookDeltaRef.current.x * 0.009;
+        pitch -= lookDeltaRef.current.y * 0.008;
+        pitch = Math.max(-1.2, Math.min(0.9, pitch));
         lookDeltaRef.current.x = 0;
         lookDeltaRef.current.y = 0;
       }
 
       // Camera-relative input
       const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-      const right = new THREE.Vector3(Math.sin(yaw + Math.PI / 2), 0, Math.cos(yaw + Math.PI / 2));
+      // Screen-right in this camera setup is yaw - 90deg (was inverted).
+      const right = new THREE.Vector3(Math.sin(yaw - Math.PI / 2), 0, Math.cos(yaw - Math.PI / 2));
       const move = new THREE.Vector3();
       if (!playerState.dead) {
         if (keys["KeyW"] || keys["ArrowUp"]) move.add(forward);
@@ -1433,9 +1436,10 @@ export default function Game() {
       // camera never clips through arena geometry.
       // Zoom (wheel / pinch), clamped
       if (zoomRef.current !== 0) {
-        camDistCur = Math.max(1.2, Math.min(12, camDistCur + zoomRef.current));
+        camDistTarget = Math.max(1.0, Math.min(16, camDistTarget + zoomRef.current));
         zoomRef.current = 0;
       }
+      camDistCur += (camDistTarget - camDistCur) * Math.min(1, dt * 10);
       const camDist = camDistCur;
       const camHeight = 2.2;
       const camOffset = new THREE.Vector3(
