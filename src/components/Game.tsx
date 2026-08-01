@@ -1245,16 +1245,18 @@ export default function Game() {
 
       // Apply touch look
       if (lookDeltaRef.current.x !== 0 || lookDeltaRef.current.y !== 0) {
-        yaw -= lookDeltaRef.current.x * 0.006;
-        pitch -= lookDeltaRef.current.y * 0.006;
-        pitch = Math.max(-1.0, Math.min(0.6, pitch));
+        // Drag right -> camera pans right; drag up -> look up.
+        yaw -= lookDeltaRef.current.x * 0.009;
+        pitch -= lookDeltaRef.current.y * 0.008;
+        pitch = Math.max(-1.2, Math.min(0.9, pitch));
         lookDeltaRef.current.x = 0;
         lookDeltaRef.current.y = 0;
       }
 
       // Camera-relative input
       const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-      const right = new THREE.Vector3(Math.sin(yaw + Math.PI / 2), 0, Math.cos(yaw + Math.PI / 2));
+      // Screen-right in this camera setup is yaw - 90deg (was inverted).
+      const right = new THREE.Vector3(Math.sin(yaw - Math.PI / 2), 0, Math.cos(yaw - Math.PI / 2));
       const move = new THREE.Vector3();
       if (!playerState.dead) {
         if (keys["KeyW"] || keys["ArrowUp"]) move.add(forward);
