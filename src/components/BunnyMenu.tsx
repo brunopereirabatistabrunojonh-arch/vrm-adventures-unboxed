@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import bunnyGirl from "@/assets/bunny-girl.png";
 import galaxiaAsset from "@/assets/galaxia.vrm.asset.json";
 
