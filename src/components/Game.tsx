@@ -1559,6 +1559,11 @@ export default function Game() {
     };
   }, []);
 
+  // Freeze gameplay whenever the menu is open.
+  useEffect(() => {
+    pausedRef.current = menuOpen;
+  }, [menuOpen]);
+
   const hpPct = Math.max(0, Math.min(100, (hp / PLAYER_MAX_HP) * 100));
 
   return (
