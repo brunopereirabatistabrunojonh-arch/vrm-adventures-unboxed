@@ -1619,10 +1619,10 @@ export default function Game() {
         attackRef={attackRef}
         kickRef={kickRef}
         zoomRef={zoomRef}
-        visible={isMobileDevice}
+        visible={isMobileDevice && !menuOpen && !loading}
       />
 
-      {dead && (
+      {dead && !menuOpen && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-red-900/40">
           <div className="rounded-lg bg-black/70 px-8 py-6 text-center text-white">
             <div className="text-3xl font-bold">You died</div>
@@ -1632,7 +1632,9 @@ export default function Game() {
       )}
 
       {/* Crosshair */}
-      <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/80" />
+      {!menuOpen && (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/80" />
+      )}
 
       {/* Pause / open menu */}
       {!menuOpen && (
