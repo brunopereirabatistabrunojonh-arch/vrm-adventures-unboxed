@@ -1564,6 +1564,15 @@ export default function Game() {
     pausedRef.current = menuOpen;
   }, [menuOpen]);
 
+  // Esc opens the menu (pauses the game).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const hpPct = Math.max(0, Math.min(100, (hp / PLAYER_MAX_HP) * 100));
 
   return (
