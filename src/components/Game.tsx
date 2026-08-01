@@ -1435,9 +1435,10 @@ export default function Game() {
       // camera never clips through arena geometry.
       // Zoom (wheel / pinch), clamped
       if (zoomRef.current !== 0) {
-        camDistCur = Math.max(1.2, Math.min(12, camDistCur + zoomRef.current));
+        camDistTarget = Math.max(1.0, Math.min(16, camDistTarget + zoomRef.current));
         zoomRef.current = 0;
       }
+      camDistCur += (camDistTarget - camDistCur) * Math.min(1, dt * 10);
       const camDist = camDistCur;
       const camHeight = 2.2;
       const camOffset = new THREE.Vector3(
