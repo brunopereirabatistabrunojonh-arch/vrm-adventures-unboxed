@@ -584,6 +584,7 @@ export default function Game() {
   const kickRef = useRef(false); // edge-triggered
   const zoomRef = useRef(0); // accumulated zoom delta (world units)
   const lookDeltaRef = useRef({ x: 0, y: 0 }); // accumulated touch look delta
+  const pausedRef = useRef(true); // game frozen while the menu is open
   const isTouch =
     typeof window !== "undefined" &&
     ("ontouchstart" in window || (navigator as any).maxTouchPoints > 0);
