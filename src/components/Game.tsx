@@ -7,6 +7,7 @@ import characterAsset from "@/assets/character.vrm.asset.json";
 import galaxiaAsset from "@/assets/galaxia.vrm.asset.json";
 import joggingAsset from "@/assets/Jogging.fbx.asset.json";
 import walkingAsset from "@/assets/Walking.fbx.asset.json";
+import kickAsset from "@/assets/Roundhouse_Kick.fbx.asset.json";
 import stageFbxAsset from "@/assets/arena/Stage0.fbx.asset.json";
 import stageBaseColorAsset from "@/assets/arena/Stage_Base_color.png.asset.json";
 import stageMetallicAsset from "@/assets/arena/Stage_Metallic.png.asset.json";
@@ -580,6 +581,8 @@ export default function Game() {
   const runRef = useRef(false);
   const jumpRef = useRef(false); // edge-triggered
   const attackRef = useRef(false); // edge-triggered
+  const kickRef = useRef(false); // edge-triggered
+  const zoomRef = useRef(0); // accumulated zoom delta (world units)
   const lookDeltaRef = useRef({ x: 0, y: 0 }); // accumulated touch look delta
   const isTouch =
     typeof window !== "undefined" &&
@@ -837,6 +840,10 @@ export default function Game() {
     let mixer: THREE.AnimationMixer | null = null;
     let runAction: THREE.AnimationAction | null = null;
     let walkAction: THREE.AnimationAction | null = null;
+    let kickAction: THREE.AnimationAction | null = null;
+    let kickDuration = 1.2;
+    let kickTimer = 0;
+    let kickCooldown = 0;
     let currentCharacterRoot: THREE.Object3D | null = null;
     let isRealVrm = false;
     const loader = new GLTFLoader();
@@ -923,6 +930,7 @@ export default function Game() {
         mixer = null;
         runAction = null;
         walkAction = null;
+        kickAction = null;
         animState.smoothed.clear();
         if (loadedVrm && realVrmLoaded) {
           // Single shared mixer — created up front to avoid a race where the
@@ -952,6 +960,18 @@ export default function Game() {
               console.log("[Game] Walking clip ready", clip.duration);
             })
             .catch((err) => console.error("[Game] Walking load failed", err));
+          loadMixamoAnimation(kickAsset.url, loadedVrm)
+            .then((clip) => {
+              clip.name = "vrmKick";
+              kickAction = mixer!.clipAction(clip);
+              kickAction.setLoop(THREE.LoopOnce, 1);
+              kickAction.clampWhenFinished = true;
+              kickAction.enabled = true;
+              kickAction.setEffectiveWeight(0);
+              kickDuration = clip.duration;
+              console.log("[Game] Kick clip ready", clip.duration);
+            })
+            .catch((err) => console.error("[Game] Kick load failed", err));
         }
         setLoading(false);
         },
@@ -1020,6 +1040,7 @@ export default function Game() {
     const onKeyDown = (e: KeyboardEvent) => {
       keys[e.code] = true;
       if (e.code === "Space") e.preventDefault();
+      if (e.code === "KeyK" || e.code === "KeyF") kickRef.current = true;
     };
     const onKeyUp = (e: KeyboardEvent) => {
       keys[e.code] = false;
@@ -1027,9 +1048,18 @@ export default function Game() {
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
 
+    // Zoom — mouse wheel on desktop
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1);
+      zoomRef.current += dy * 0.004;
+    };
+    renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
+
     // Mouse look (pointer lock)
     let yaw = 0;
     let pitch = -0.2;
+    let camDistCur = 5;
     const onMouseMove = (e: MouseEvent) => {
       if (document.pointerLockElement !== renderer.domElement) return;
       yaw -= e.movementX * 0.0025;
@@ -1053,6 +1083,23 @@ export default function Game() {
       }
     };
     const onTouchMove = (e: TouchEvent) => {
+      // Two fingers = pinch zoom (no camera rotation)
+      if (activeTouches.size >= 2) {
+        const prevPts = Array.from(activeTouches.values());
+        for (const t of Array.from(e.changedTouches)) {
+          if (activeTouches.has(t.identifier)) {
+            activeTouches.set(t.identifier, { x: t.clientX, y: t.clientY });
+          }
+        }
+        const nextPts = Array.from(activeTouches.values());
+        if (prevPts.length >= 2 && nextPts.length >= 2) {
+          const prevD = Math.hypot(prevPts[0].x - prevPts[1].x, prevPts[0].y - prevPts[1].y);
+          const nextD = Math.hypot(nextPts[0].x - nextPts[1].x, nextPts[0].y - nextPts[1].y);
+          zoomRef.current -= (nextD - prevD) * 0.02;
+        }
+        e.preventDefault();
+        return;
+      }
       for (const t of Array.from(e.changedTouches)) {
         const prev = activeTouches.get(t.identifier);
         if (!prev) continue;
@@ -1100,6 +1147,41 @@ export default function Game() {
         const d = en.mesh.position.distanceTo(attackPos);
         if (d < ATTACK_RANGE) {
           en.hp -= ATTACK_DAMAGE;
+          en.hitCooldown = 0.2;
+          (en.mesh.material as THREE.MeshStandardMaterial).color.set(0xffffff);
+          if (en.hp <= 0) {
+            en.alive = false;
+            en.respawnIn = 5;
+            en.mesh.visible = false;
+            playerState.score += 1;
+            setScore(playerState.score);
+          }
+        }
+      });
+    };
+
+    // Roundhouse kick — plays the Mixamo clip and deals damage mid-animation.
+    const tryKick = () => {
+      if (kickCooldown > 0 || playerState.dead) return;
+      kickTimer = kickDuration;
+      kickCooldown = kickDuration + 0.15;
+      if (kickAction) {
+        kickAction.reset();
+        kickAction.enabled = true;
+        kickAction.paused = false;
+        kickAction.setEffectiveWeight(1);
+        kickAction.play();
+      }
+      const forward = new THREE.Vector3(
+        Math.sin(player.rotation.y),
+        0,
+        Math.cos(player.rotation.y)
+      );
+      const kickPos = player.position.clone().add(forward.multiplyScalar(1.4));
+      enemies.forEach((en) => {
+        if (!en.alive) return;
+        if (en.mesh.position.distanceTo(kickPos) < ATTACK_RANGE + 0.6) {
+          en.hp -= ATTACK_DAMAGE * 1.5;
           en.hitCooldown = 0.2;
           (en.mesh.material as THREE.MeshStandardMaterial).color.set(0xffffff);
           if (en.hp <= 0) {
@@ -1213,6 +1295,12 @@ export default function Game() {
         attackRef.current = false;
         tryAttack();
       }
+      if (kickRef.current) {
+        kickRef.current = false;
+        tryKick();
+      }
+      if (kickTimer > 0) kickTimer -= dt;
+      if (kickCooldown > 0) kickCooldown -= dt;
       // Gravity
       playerState.vel.y -= 22 * dt;
 
@@ -1343,7 +1431,12 @@ export default function Game() {
 
       // Camera follow (third person) with wall occlusion raycast so the
       // camera never clips through arena geometry.
-      const camDist = 5;
+      // Zoom (wheel / pinch), clamped
+      if (zoomRef.current !== 0) {
+        camDistCur = Math.max(1.2, Math.min(12, camDistCur + zoomRef.current));
+        zoomRef.current = 0;
+      }
+      const camDist = camDistCur;
       const camHeight = 2.2;
       const camOffset = new THREE.Vector3(
         -Math.sin(yaw) * camDist,
@@ -1375,8 +1468,9 @@ export default function Game() {
         // procedural fallback that caused stuttering ("travando").
         const moving = speedNow > 0.4;
         const sprinting = speedNow > 6.5;
-        const runTarget = sprinting ? 1 : 0;
-        const walkTarget = moving && !sprinting ? 1 : 0;
+        const kicking = kickTimer > 0;
+        const runTarget = kicking ? 0 : sprinting ? 1 : 0;
+        const walkTarget = kicking ? 0 : moving && !sprinting ? 1 : 0;
         const blendK = Math.min(1, dt * 12);
         if (runAction) {
           runAction.enabled = true;
@@ -1398,7 +1492,11 @@ export default function Game() {
         // their bind pose instead.
         if (isRealVrm) {
           const runActive = moving || (runAction?.weight ?? 0) > 0.05 || (walkAction?.weight ?? 0) > 0.05;
-          updateCharacterAnimation(vrm, dt, {
+          if (kickAction) {
+            kickAction.weight = lerp(kickAction.weight, kicking ? 1 : 0, Math.min(1, dt * 14));
+            if (!kicking && kickAction.weight < 0.02) kickAction.stop();
+          }
+          if (!kicking) updateCharacterAnimation(vrm, dt, {
             speed: speedNow,
             maxSpeed: 9,
             attackTimer,
@@ -1480,6 +1578,8 @@ export default function Game() {
         <div>Shift — Run</div>
         <div>Space — Jump</div>
         <div>Left Click — Attack</div>
+        <div>K / F — Chute (Roundhouse)</div>
+        <div>Scroll — Zoom</div>
         <div>Mouse — Camera</div>
         <div>Esc — Release mouse</div>
       </div>
@@ -1490,6 +1590,8 @@ export default function Game() {
         runRef={runRef}
         jumpRef={jumpRef}
         attackRef={attackRef}
+        kickRef={kickRef}
+        zoomRef={zoomRef}
         visible={isMobileDevice}
       />
 
@@ -1560,12 +1662,16 @@ function MobileControls({
   runRef,
   jumpRef,
   attackRef,
+  kickRef,
+  zoomRef,
   visible,
 }: {
   moveRef: React.MutableRefObject<{ x: number; y: number }>;
   runRef: React.MutableRefObject<boolean>;
   jumpRef: React.MutableRefObject<boolean>;
   attackRef: React.MutableRefObject<boolean>;
+  kickRef: React.MutableRefObject<boolean>;
+  zoomRef: React.MutableRefObject<number>;
   visible?: boolean;
 }) {
   const padRef = useRef<HTMLDivElement>(null);
@@ -1653,6 +1759,37 @@ function MobileControls({
 
       {/* Action buttons */}
       <div className="pointer-events-auto absolute bottom-4 right-4 flex flex-col items-end gap-2 sm:bottom-8 sm:right-6 sm:gap-3">
+        <div className="flex gap-2 sm:gap-3">
+          <button
+            className={`${btnBase} h-11 w-11 bg-white/25 text-lg sm:h-12 sm:w-12`}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              zoomRef.current -= 0.8;
+            }}
+            aria-label="Zoom in"
+          >
+            +
+          </button>
+          <button
+            className={`${btnBase} h-11 w-11 bg-white/25 text-lg sm:h-12 sm:w-12`}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              zoomRef.current += 0.8;
+            }}
+            aria-label="Zoom out"
+          >
+            −
+          </button>
+          <button
+            className={`${btnBase} h-14 w-14 bg-fuchsia-500/85 text-xs sm:h-16 sm:w-16 sm:text-sm`}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              kickRef.current = true;
+            }}
+          >
+            KICK
+          </button>
+        </div>
         <button
           className={`${btnBase} h-16 w-16 bg-red-500/80 text-base sm:h-20 sm:w-20 sm:text-lg`}
           onTouchStart={(e) => {
