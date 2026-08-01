@@ -1578,6 +1578,8 @@ export default function Game() {
         <div>Shift — Run</div>
         <div>Space — Jump</div>
         <div>Left Click — Attack</div>
+        <div>K / F — Chute (Roundhouse)</div>
+        <div>Scroll — Zoom</div>
         <div>Mouse — Camera</div>
         <div>Esc — Release mouse</div>
       </div>
@@ -1588,6 +1590,8 @@ export default function Game() {
         runRef={runRef}
         jumpRef={jumpRef}
         attackRef={attackRef}
+        kickRef={kickRef}
+        zoomRef={zoomRef}
         visible={isMobileDevice}
       />
 
@@ -1658,12 +1662,16 @@ function MobileControls({
   runRef,
   jumpRef,
   attackRef,
+  kickRef,
+  zoomRef,
   visible,
 }: {
   moveRef: React.MutableRefObject<{ x: number; y: number }>;
   runRef: React.MutableRefObject<boolean>;
   jumpRef: React.MutableRefObject<boolean>;
   attackRef: React.MutableRefObject<boolean>;
+  kickRef: React.MutableRefObject<boolean>;
+  zoomRef: React.MutableRefObject<number>;
   visible?: boolean;
 }) {
   const padRef = useRef<HTMLDivElement>(null);
@@ -1751,6 +1759,37 @@ function MobileControls({
 
       {/* Action buttons */}
       <div className="pointer-events-auto absolute bottom-4 right-4 flex flex-col items-end gap-2 sm:bottom-8 sm:right-6 sm:gap-3">
+        <div className="flex gap-2 sm:gap-3">
+          <button
+            className={`${btnBase} h-11 w-11 bg-white/25 text-lg sm:h-12 sm:w-12`}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              zoomRef.current -= 0.8;
+            }}
+            aria-label="Zoom in"
+          >
+            +
+          </button>
+          <button
+            className={`${btnBase} h-11 w-11 bg-white/25 text-lg sm:h-12 sm:w-12`}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              zoomRef.current += 0.8;
+            }}
+            aria-label="Zoom out"
+          >
+            −
+          </button>
+          <button
+            className={`${btnBase} h-14 w-14 bg-fuchsia-500/85 text-xs sm:h-16 sm:w-16 sm:text-sm`}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              kickRef.current = true;
+            }}
+          >
+            KICK
+          </button>
+        </div>
         <button
           className={`${btnBase} h-16 w-16 bg-red-500/80 text-base sm:h-20 sm:w-20 sm:text-lg`}
           onTouchStart={(e) => {
