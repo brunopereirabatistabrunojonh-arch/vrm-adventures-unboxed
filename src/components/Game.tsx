@@ -841,6 +841,9 @@ export default function Game() {
     let runAction: THREE.AnimationAction | null = null;
     let walkAction: THREE.AnimationAction | null = null;
     let kickAction: THREE.AnimationAction | null = null;
+    let kickDuration = 1.2;
+    let kickTimer = 0;
+    let kickCooldown = 0;
     let currentCharacterRoot: THREE.Object3D | null = null;
     let isRealVrm = false;
     const loader = new GLTFLoader();
