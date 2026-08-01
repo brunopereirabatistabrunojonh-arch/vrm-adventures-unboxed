@@ -1040,12 +1040,21 @@ export default function Game() {
     const onKeyDown = (e: KeyboardEvent) => {
       keys[e.code] = true;
       if (e.code === "Space") e.preventDefault();
+      if (e.code === "KeyK" || e.code === "KeyF") kickRef.current = true;
     };
     const onKeyUp = (e: KeyboardEvent) => {
       keys[e.code] = false;
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+
+    // Zoom — mouse wheel on desktop
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1);
+      zoomRef.current += dy * 0.004;
+    };
+    renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
 
     // Mouse look (pointer lock)
     let yaw = 0;
@@ -1073,6 +1082,23 @@ export default function Game() {
       }
     };
     const onTouchMove = (e: TouchEvent) => {
+      // Two fingers = pinch zoom (no camera rotation)
+      if (activeTouches.size >= 2) {
+        const prevPts = Array.from(activeTouches.values());
+        for (const t of Array.from(e.changedTouches)) {
+          if (activeTouches.has(t.identifier)) {
+            activeTouches.set(t.identifier, { x: t.clientX, y: t.clientY });
+          }
+        }
+        const nextPts = Array.from(activeTouches.values());
+        if (prevPts.length >= 2 && nextPts.length >= 2) {
+          const prevD = Math.hypot(prevPts[0].x - prevPts[1].x, prevPts[0].y - prevPts[1].y);
+          const nextD = Math.hypot(nextPts[0].x - nextPts[1].x, nextPts[0].y - nextPts[1].y);
+          zoomRef.current -= (nextD - prevD) * 0.02;
+        }
+        e.preventDefault();
+        return;
+      }
       for (const t of Array.from(e.changedTouches)) {
         const prev = activeTouches.get(t.identifier);
         if (!prev) continue;
