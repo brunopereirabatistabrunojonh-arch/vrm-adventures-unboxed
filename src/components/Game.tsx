@@ -584,6 +584,7 @@ export default function Game() {
   const kickRef = useRef(false); // edge-triggered
   const zoomRef = useRef(0); // accumulated zoom delta (world units)
   const lookDeltaRef = useRef({ x: 0, y: 0 }); // accumulated touch look delta
+  const pausedRef = useRef(true); // game frozen while the menu is open
   const isTouch =
     typeof window !== "undefined" &&
     ("ontouchstart" in window || (navigator as any).maxTouchPoints > 0);
@@ -1244,11 +1245,28 @@ export default function Game() {
       raf = requestAnimationFrame(animate);
       const dt = Math.min(clock.getDelta(), 0.05);
 
+      // Paused (menu open): keep rendering the scene but freeze gameplay so
+      // enemies can't kill the player behind the menu.
+      if (pausedRef.current) {
+        moveRef.current.x = 0;
+        moveRef.current.y = 0;
+        jumpRef.current = false;
+        attackRef.current = false;
+        kickRef.current = false;
+        lookDeltaRef.current.x = 0;
+        lookDeltaRef.current.y = 0;
+        renderer.render(scene, camera);
+        return;
+      }
+
       // Apply touch look
       if (lookDeltaRef.current.x !== 0 || lookDeltaRef.current.y !== 0) {
+        const sens =
+          ((window as unknown as { __bunnySettings?: { sensitivity: number } })
+            .__bunnySettings?.sensitivity ?? 50) / 50;
         // Drag right -> camera pans right; drag up -> look up.
-        yaw -= lookDeltaRef.current.x * 0.009;
-        pitch -= lookDeltaRef.current.y * 0.008;
+        yaw -= lookDeltaRef.current.x * 0.009 * sens;
+        pitch -= lookDeltaRef.current.y * 0.008 * sens;
         pitch = Math.max(-1.2, Math.min(0.9, pitch));
         lookDeltaRef.current.x = 0;
         lookDeltaRef.current.y = 0;
@@ -1541,6 +1559,20 @@ export default function Game() {
     };
   }, []);
 
+  // Freeze gameplay whenever the menu is open.
+  useEffect(() => {
+    pausedRef.current = menuOpen;
+  }, [menuOpen]);
+
+  // Esc opens the menu (pauses the game).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const hpPct = Math.max(0, Math.min(100, (hp / PLAYER_MAX_HP) * 100));
 
   return (
@@ -1596,10 +1628,10 @@ export default function Game() {
         attackRef={attackRef}
         kickRef={kickRef}
         zoomRef={zoomRef}
-        visible={isMobileDevice}
+        visible={isMobileDevice && !menuOpen && !loading}
       />
 
-      {dead && (
+      {dead && !menuOpen && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-red-900/40">
           <div className="rounded-lg bg-black/70 px-8 py-6 text-center text-white">
             <div className="text-3xl font-bold">You died</div>
@@ -1609,7 +1641,9 @@ export default function Game() {
       )}
 
       {/* Crosshair */}
-      <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/80" />
+      {!menuOpen && (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/80" />
+      )}
 
       {/* Pause / open menu */}
       {!menuOpen && (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import bunnyGirl from "@/assets/bunny-girl.png";
 import galaxiaAsset from "@/assets/galaxia.vrm.asset.json";
 
@@ -90,38 +90,57 @@ type Props = {
 
 export default function BunnyMenu({ open, currentKills, onPlay }: Props) {
   const [screen, setScreen] = useState<Screen>("main");
-  const [best, setBest] = useState<number>(() => readJSON(LS.best, 0));
-  const [coins, setCoins] = useState<number>(() => readJSON(LS.coins, 0));
-  const [owned, setOwned] = useState<string[]>(() => readJSON(LS.owned, ["classic"]));
-  const [skin, setSkin] = useState<string>(() => readJSON(LS.skin, "classic"));
-  const [settings, setSettings] = useState<BunnySettings>(() => loadSettings());
-  const [ranking, setRanking] = useState<{ name: string; kills: number; date: string }[]>(() =>
-    readJSON(LS.ranking, [] as { name: string; kills: number; date: string }[])
-  );
+  // NOTE: start from defaults so the server-rendered HTML matches the first
+  // client render, then hydrate from localStorage in an effect.
+  const [best, setBest] = useState<number>(0);
+  const [coins, setCoins] = useState<number>(0);
+  const [owned, setOwned] = useState<string[]>(["classic"]);
+  const [skin, setSkin] = useState<string>("classic");
+  const [settings, setSettings] = useState<BunnySettings>(DEFAULT_SETTINGS);
+  const [ranking, setRanking] = useState<{ name: string; kills: number; date: string }[]>([]);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setBest(readJSON(LS.best, 0));
+    setCoins(readJSON(LS.coins, 0));
+    setOwned(readJSON(LS.owned, ["classic"]));
+    setSkin(readJSON(LS.skin, "classic"));
+    setSettings(loadSettings());
+    setRanking(readJSON(LS.ranking, [] as { name: string; kills: number; date: string }[]));
+    setHydrated(true);
+  }, []);
 
   // Reset to main whenever menu opens
   useEffect(() => {
     if (open) setScreen("main");
   }, [open]);
 
-  // Record best + earn coins whenever kills go up
+  // Record best + earn 10 coins for every new kill
+  const lastKillsRef = useRef(0);
   useEffect(() => {
+    if (!hydrated) return;
     setBest((b) => {
       const nb = Math.max(b, currentKills);
       if (nb !== b) writeJSON(LS.best, nb);
       return nb;
     });
-    setCoins((c) => {
-      const nc = Math.max(c, readJSON(LS.coins, 0) + 0); // stable read
-      return nc;
-    });
-  }, [currentKills]);
+    const gained = Math.max(0, currentKills - lastKillsRef.current);
+    lastKillsRef.current = currentKills;
+    if (gained > 0) {
+      setCoins((c) => {
+        const nc = c + gained * 10;
+        writeJSON(LS.coins, nc);
+        return nc;
+      });
+    }
+  }, [currentKills, hydrated]);
 
   // Persist settings
   useEffect(() => {
+    if (!hydrated) return;
     writeJSON(LS.settings, settings);
     (window as unknown as { __bunnySettings?: BunnySettings }).__bunnySettings = settings;
-  }, [settings]);
+  }, [settings, hydrated]);
 
   if (!open) return null;
 
