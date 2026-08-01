@@ -581,6 +581,8 @@ export default function Game() {
   const runRef = useRef(false);
   const jumpRef = useRef(false); // edge-triggered
   const attackRef = useRef(false); // edge-triggered
+  const kickRef = useRef(false); // edge-triggered
+  const zoomRef = useRef(0); // accumulated zoom delta (world units)
   const lookDeltaRef = useRef({ x: 0, y: 0 }); // accumulated touch look delta
   const isTouch =
     typeof window !== "undefined" &&
@@ -838,6 +840,7 @@ export default function Game() {
     let mixer: THREE.AnimationMixer | null = null;
     let runAction: THREE.AnimationAction | null = null;
     let walkAction: THREE.AnimationAction | null = null;
+    let kickAction: THREE.AnimationAction | null = null;
     let currentCharacterRoot: THREE.Object3D | null = null;
     let isRealVrm = false;
     const loader = new GLTFLoader();
@@ -924,6 +927,7 @@ export default function Game() {
         mixer = null;
         runAction = null;
         walkAction = null;
+        kickAction = null;
         animState.smoothed.clear();
         if (loadedVrm && realVrmLoaded) {
           // Single shared mixer — created up front to avoid a race where the
@@ -953,6 +957,18 @@ export default function Game() {
               console.log("[Game] Walking clip ready", clip.duration);
             })
             .catch((err) => console.error("[Game] Walking load failed", err));
+          loadMixamoAnimation(kickAsset.url, loadedVrm)
+            .then((clip) => {
+              clip.name = "vrmKick";
+              kickAction = mixer!.clipAction(clip);
+              kickAction.setLoop(THREE.LoopOnce, 1);
+              kickAction.clampWhenFinished = true;
+              kickAction.enabled = true;
+              kickAction.setEffectiveWeight(0);
+              kickDuration = clip.duration;
+              console.log("[Game] Kick clip ready", clip.duration);
+            })
+            .catch((err) => console.error("[Game] Kick load failed", err));
         }
         setLoading(false);
         },
