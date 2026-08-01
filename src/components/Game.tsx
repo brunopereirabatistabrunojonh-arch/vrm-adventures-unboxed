@@ -1245,11 +1245,28 @@ export default function Game() {
       raf = requestAnimationFrame(animate);
       const dt = Math.min(clock.getDelta(), 0.05);
 
+      // Paused (menu open): keep rendering the scene but freeze gameplay so
+      // enemies can't kill the player behind the menu.
+      if (pausedRef.current) {
+        moveRef.current.x = 0;
+        moveRef.current.y = 0;
+        jumpRef.current = false;
+        attackRef.current = false;
+        kickRef.current = false;
+        lookDeltaRef.current.x = 0;
+        lookDeltaRef.current.y = 0;
+        renderer.render(scene, camera);
+        return;
+      }
+
       // Apply touch look
       if (lookDeltaRef.current.x !== 0 || lookDeltaRef.current.y !== 0) {
+        const sens =
+          ((window as unknown as { __bunnySettings?: { sensitivity: number } })
+            .__bunnySettings?.sensitivity ?? 50) / 50;
         // Drag right -> camera pans right; drag up -> look up.
-        yaw -= lookDeltaRef.current.x * 0.009;
-        pitch -= lookDeltaRef.current.y * 0.008;
+        yaw -= lookDeltaRef.current.x * 0.009 * sens;
+        pitch -= lookDeltaRef.current.y * 0.008 * sens;
         pitch = Math.max(-1.2, Math.min(0.9, pitch));
         lookDeltaRef.current.x = 0;
         lookDeltaRef.current.y = 0;
