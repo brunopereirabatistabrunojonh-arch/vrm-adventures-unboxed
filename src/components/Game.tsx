@@ -1059,6 +1059,7 @@ export default function Game() {
     // Mouse look (pointer lock)
     let yaw = 0;
     let pitch = -0.2;
+    let camDistCur = 5;
     const onMouseMove = (e: MouseEvent) => {
       if (document.pointerLockElement !== renderer.domElement) return;
       yaw -= e.movementX * 0.0025;
