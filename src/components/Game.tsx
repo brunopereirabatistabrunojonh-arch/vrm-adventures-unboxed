@@ -7,6 +7,7 @@ import characterAsset from "@/assets/character.vrm.asset.json";
 import galaxiaAsset from "@/assets/galaxia.vrm.asset.json";
 import joggingAsset from "@/assets/Jogging.fbx.asset.json";
 import walkingAsset from "@/assets/Walking.fbx.asset.json";
+import kickAsset from "@/assets/Roundhouse_Kick.fbx.asset.json";
 import stageFbxAsset from "@/assets/arena/Stage0.fbx.asset.json";
 import stageBaseColorAsset from "@/assets/arena/Stage_Base_color.png.asset.json";
 import stageMetallicAsset from "@/assets/arena/Stage_Metallic.png.asset.json";
