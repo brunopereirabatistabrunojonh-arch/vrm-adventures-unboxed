@@ -1133,6 +1133,41 @@ export default function Game() {
       });
     };
 
+    // Roundhouse kick — plays the Mixamo clip and deals damage mid-animation.
+    const tryKick = () => {
+      if (kickCooldown > 0 || playerState.dead) return;
+      kickTimer = kickDuration;
+      kickCooldown = kickDuration + 0.15;
+      if (kickAction) {
+        kickAction.reset();
+        kickAction.enabled = true;
+        kickAction.paused = false;
+        kickAction.setEffectiveWeight(1);
+        kickAction.play();
+      }
+      const forward = new THREE.Vector3(
+        Math.sin(player.rotation.y),
+        0,
+        Math.cos(player.rotation.y)
+      );
+      const kickPos = player.position.clone().add(forward.multiplyScalar(1.4));
+      enemies.forEach((en) => {
+        if (!en.alive) return;
+        if (en.mesh.position.distanceTo(kickPos) < ATTACK_RANGE + 0.6) {
+          en.hp -= ATTACK_DAMAGE * 1.5;
+          en.hitCooldown = 0.2;
+          (en.mesh.material as THREE.MeshStandardMaterial).color.set(0xffffff);
+          if (en.hp <= 0) {
+            en.alive = false;
+            en.respawnIn = 5;
+            en.mesh.visible = false;
+            playerState.score += 1;
+            setScore(playerState.score);
+          }
+        }
+      });
+    };
+
     // Player state
     const playerState = {
       vel: new THREE.Vector3(),
