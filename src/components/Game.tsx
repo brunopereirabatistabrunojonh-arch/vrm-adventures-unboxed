@@ -668,20 +668,7 @@ export default function Game() {
 
         scene.add(stage);
 
-        // Find the walkable floor height at the origin via downward raycast,
-        // then shift the arena so that surface aligns with y=0.
-        const finalBox = new THREE.Box3().setFromObject(stage);
-        const ray = new THREE.Raycaster(
-          new THREE.Vector3(0, finalBox.max.y + 10, 0),
-          new THREE.Vector3(0, -1, 0),
-          0,
-          (finalBox.max.y - finalBox.min.y) + 20
-        );
-        const hits = ray.intersectObject(stage, true);
-        const floorY = hits.length > 0 ? hits[0].point.y : finalBox.min.y;
-        stage.position.y -= floorY;
-
-        // Update walk clamp to the visible arena footprint.
+        // Update walk clamp to the visible map footprint.
         const after = new THREE.Box3().setFromObject(stage);
         const halfX = (after.max.x - after.min.x) / 2;
         const halfZ = (after.max.z - after.min.z) / 2;
@@ -690,6 +677,36 @@ export default function Game() {
         // Publish the loaded map root so the physics loop can collide
         // against every mesh (floor, platforms, walls, props).
         stageColliderRef.mesh = stage;
+
+        // Find an accessible street tile: low ground with free headroom.
+        const down = new THREE.Vector3(0, -1, 0);
+        const probe = new THREE.Raycaster();
+        let best: { x: number; z: number; y: number } | null = null;
+        const R = arenaBounds.half - 3;
+        for (let ring = 0; ring <= 8; ring++) {
+          const rad = (ring / 8) * R;
+          const steps = ring === 0 ? 1 : 16;
+          for (let s = 0; s < steps; s++) {
+            const a = (s / steps) * Math.PI * 2;
+            const x = Math.cos(a) * rad;
+            const z = Math.sin(a) * rad;
+            probe.set(new THREE.Vector3(x, after.max.y + 5, z), down);
+            probe.far = (after.max.y - after.min.y) + 20;
+            const h = probe.intersectObject(stage, true);
+            if (!h.length) continue;
+            const y = h[0].point.y;
+            // Street level = close to the map's lowest surface.
+            if (y > after.min.y + 1.2) continue;
+            // Headroom check: nothing right above the spot.
+            probe.set(new THREE.Vector3(x, y + 0.3, z), new THREE.Vector3(0, 1, 0));
+            probe.far = 2.2;
+            if (probe.intersectObject(stage, true).length) continue;
+            if (!best || y < best.y) best = { x, z, y };
+          }
+          if (best) break;
+        }
+        const spawn = best ?? { x: 0, z: 0, y: after.min.y };
+        player.position.set(spawn.x, spawn.y + 0.5, spawn.z);
       }, undefined, (err) => {
         console.error("[Map] Failed to load LittlestTokyo.glb", err);
       });
