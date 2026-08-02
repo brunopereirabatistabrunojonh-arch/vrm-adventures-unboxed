@@ -8,14 +8,7 @@ import galaxiaAsset from "@/assets/galaxia.vrm.asset.json";
 import joggingAsset from "@/assets/Jogging.fbx.asset.json";
 import walkingAsset from "@/assets/Walking.fbx.asset.json";
 import kickAsset from "@/assets/Roundhouse_Kick.fbx.asset.json";
-import stageFbxAsset from "@/assets/arena/Stage0.fbx.asset.json";
-import stageBaseColorAsset from "@/assets/arena/Stage_Base_color.png.asset.json";
-import stageMetallicAsset from "@/assets/arena/Stage_Metallic.png.asset.json";
-import stageRoughnessAsset from "@/assets/arena/Stage_Roughness.png.asset.json";
-import stageOpacityAsset from "@/assets/arena/Stage_Opacity.png.asset.json";
-import mainBaseColorAsset from "@/assets/arena/Main_Base_Base_color.png.asset.json";
-import mainMetallicAsset from "@/assets/arena/Main_Base_Metallic.png.asset.json";
-import mainRoughnessAsset from "@/assets/arena/Main_Base_Roughness.png.asset.json";
+import tokyoMapAsset from "@/assets/LittlestTokyo.glb.asset.json";
 import { loadMixamoAnimation } from "@/lib/loadMixamoAnimation";
 import BunnyMenu from "@/components/BunnyMenu";
 
@@ -607,12 +600,15 @@ export default function Game() {
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.25;
     mount.appendChild(renderer.domElement);
 
     // Lights
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x444466, 0.9);
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x8899aa, 2.0);
     scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xffffff, 1.1);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+    const sun = new THREE.DirectionalLight(0xffffff, 2.0);
     sun.position.set(40, 60, 20);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -632,7 +628,7 @@ export default function Game() {
     ground.visible = false;
     scene.add(ground);
 
-    // Beach Battle arena — loaded from FBX
+    // Littlest Tokyo — main map (GLB)
     type Obstacle = { pos: THREE.Vector3; radius: number };
     const obstacles: Obstacle[] = [];
     const rng = (min: number, max: number) => Math.random() * (max - min) + min;
@@ -640,79 +636,15 @@ export default function Game() {
     const arenaBounds = { half: WORLD_SIZE / 2 };
 
     {
-      // Preload PBR textures and assign them by material name.
-      const texLoader = new THREE.TextureLoader();
-      const failedTextures: string[] = [];
-      const loadTex = (url: string, srgb: boolean, label: string) => {
-        const t = texLoader.load(
-          url,
-          undefined,
-          undefined,
-          (err) => {
-            failedTextures.push(label);
-            console.warn(`[Arena] Failed to load texture "${label}" from ${url}`, err);
-          },
-        );
-        t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-        t.wrapS = t.wrapT = THREE.RepeatWrapping;
-        t.anisotropy = 8;
-        t.flipY = false; // FBX UVs match three's default (flipY=false) — matches Maya export
-        return t;
-      };
-      const stageTex = {
-        map: loadTex(stageBaseColorAsset.url, true, "Stage_Base_color"),
-        metallic: loadTex(stageMetallicAsset.url, false, "Stage_Metallic"),
-        rough: loadTex(stageRoughnessAsset.url, false, "Stage_Roughness"),
-        alpha: loadTex(stageOpacityAsset.url, false, "Stage_Opacity"),
-      };
-      const mainTex = {
-        map: loadTex(mainBaseColorAsset.url, true, "Main_Base_Base_color"),
-        metallic: loadTex(mainMetallicAsset.url, false, "Main_Base_Metallic"),
-        rough: loadTex(mainRoughnessAsset.url, false, "Main_Base_Roughness"),
-      };
-
-      // Restore the original PBR look. Route every mesh to either the Stage
-      // or Main_Base texture set based on its source material name; log any
-      // material we can't confidently classify so the mapping can be tightened.
-      const unmatchedMaterials = new Set<string>();
-      const applyMaterial = (mesh: THREE.Mesh) => {
-        const rawName =
-          (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material)?.name || "";
-        const meshName = mesh.name || "";
-        const hay = `${rawName} ${meshName}`.toLowerCase();
-        const isMain =
-          hay.includes("main_base") || hay.includes("mainbase") || hay.includes("main");
-        const isStage = !isMain && hay.includes("stage");
-        if (!isMain && !isStage) {
-          unmatchedMaterials.add(`${rawName || "(unnamed)"} / mesh:${meshName || "(unnamed)"}`);
-        }
-        // Default unknown meshes to the Stage set (podium/props) — matches the
-        // original arena where non-base meshes belong to the platform.
-        const useStage = isStage || (!isMain && !isStage);
-        const src = isMain ? mainTex : stageTex;
-        const pbr = new THREE.MeshStandardMaterial({
-          map: src.map,
-          metalnessMap: src.metallic,
-          roughnessMap: src.rough,
-          color: 0xffffff,
-          metalness: 1.0,
-          roughness: 1.0,
-          alphaMap: useStage ? stageTex.alpha : undefined,
-          transparent: useStage,
-          alphaTest: useStage ? 0.5 : 0,
-          side: useStage ? THREE.DoubleSide : THREE.FrontSide,
-          name: rawName || (useStage ? "stage_mat" : "main_mat"),
-        });
-        mesh.material = pbr;
-      };
-
-      const fbxLoader = new FBXLoader();
-      fbxLoader.load(stageFbxAsset.url, (stage) => {
-        // Auto-fit to a target footprint so the arena fills the play area.
+      // The GLB ships with embedded PBR textures — keep the authored materials.
+      const mapLoader = new GLTFLoader();
+      mapLoader.load(tokyoMapAsset.url, (gltf) => {
+        const stage = gltf.scene;
+        // Auto-fit to a target footprint so the map fills the play area.
         const bbox = new THREE.Box3().setFromObject(stage);
         const size = new THREE.Vector3();
         bbox.getSize(size);
-        const target = 60; // desired arena footprint (units)
+        const target = 45; // desired map footprint (units)
         const maxDim = Math.max(size.x, size.z) || 1;
         const scale = target / maxDim;
         stage.scale.setScalar(scale);
@@ -730,45 +662,79 @@ export default function Game() {
           if ((m as any).isMesh) {
             m.castShadow = true;
             m.receiveShadow = true;
-            applyMaterial(m);
+            const mat = Array.isArray(m.material) ? m.material : [m.material];
+            mat.forEach((mm: any) => {
+              if (mm) mm.side = THREE.DoubleSide;
+            });
           }
         });
 
         scene.add(stage);
 
-        // Find the walkable floor height at the origin via downward raycast,
-        // then shift the arena so that surface aligns with y=0.
-        const finalBox = new THREE.Box3().setFromObject(stage);
-        const ray = new THREE.Raycaster(
-          new THREE.Vector3(0, finalBox.max.y + 10, 0),
-          new THREE.Vector3(0, -1, 0),
-          0,
-          (finalBox.max.y - finalBox.min.y) + 20
-        );
-        const hits = ray.intersectObject(stage, true);
-        const floorY = hits.length > 0 ? hits[0].point.y : finalBox.min.y;
-        stage.position.y -= floorY;
-
-        // Update walk clamp to the visible arena footprint.
+        // Update walk clamp to the visible map footprint.
         const after = new THREE.Box3().setFromObject(stage);
         const halfX = (after.max.x - after.min.x) / 2;
         const halfZ = (after.max.z - after.min.z) / 2;
         arenaBounds.half = Math.min(halfX, halfZ) - 1.5;
 
-        if (unmatchedMaterials.size > 0) {
-          console.warn(
-            `[Arena] ${unmatchedMaterials.size} material(s) did not match Stage/Main_Base — routed to Stage textures:`,
-            Array.from(unmatchedMaterials),
-          );
-        }
-        if (failedTextures.length > 0) {
-          console.warn("[Arena] Textures that failed to load:", failedTextures);
-        }
-        // Publish the loaded arena root so the physics loop can collide
+        // Publish the loaded map root so the physics loop can collide
         // against every mesh (floor, platforms, walls, props).
         stageColliderRef.mesh = stage;
+
+        // ---- Spawn search: find the dominant street level of the diorama ----
+        // Sample a grid over the central area, bucket the top-surface heights
+        // and treat the most common height as "street" (open roads dominate).
+        const down = new THREE.Vector3(0, -1, 0);
+        const up = new THREE.Vector3(0, 1, 0);
+        const probe = new THREE.Raycaster();
+        const R = arenaBounds.half * 0.7;
+        const samples: { x: number; z: number; y: number }[] = [];
+        const buckets = new Map<number, number>();
+        const STEPS = 26;
+        for (let i = 0; i < STEPS; i++) {
+          for (let j = 0; j < STEPS; j++) {
+            const x = -R + (2 * R * i) / (STEPS - 1);
+            const z = -R + (2 * R * j) / (STEPS - 1);
+            probe.set(new THREE.Vector3(x, after.max.y + 5, z), down);
+            probe.far = after.max.y - after.min.y + 20;
+            const h = probe.intersectObject(stage, true);
+            if (!h.length) continue;
+            const y = h[0].point.y;
+            // Skip spots without headroom for the character.
+            // Must be open to the sky (outdoor street, not inside a building).
+            probe.set(new THREE.Vector3(x, y + 0.25, z), up);
+            probe.far = (after.max.y - y) + 5;
+            if (probe.intersectObject(stage, true).length) continue;
+            samples.push({ x, z, y });
+            const b = Math.round(y * 2) / 2;
+            buckets.set(b, (buckets.get(b) ?? 0) + 1);
+          }
+        }
+        let streetY = after.min.y;
+        let bestCount = -1;
+        buckets.forEach((count, b) => {
+          if (count > bestCount) {
+            bestCount = count;
+            streetY = b;
+          }
+        });
+        // Pick the sample at street level closest to the map center.
+        let spawn = { x: 0, z: 0, y: streetY };
+        let bestD = Infinity;
+        for (const s of samples) {
+          if (Math.abs(s.y - streetY) > 0.6) continue;
+          const d = s.x * s.x + s.z * s.z;
+          if (d < bestD) {
+            bestD = d;
+            spawn = s;
+          }
+        }
+        player.position.set(spawn.x, spawn.y + 0.4, spawn.z);
+        console.log("[Map] bbox", after.min.toArray(), after.max.toArray());
+        console.log("[Map] hist", JSON.stringify([...buckets.entries()].sort((a,b)=>b[1]-a[1]).slice(0,10)));
+        console.log("[Map] spawn", spawn, "streetY", streetY, "samples", samples.length);
       }, undefined, (err) => {
-        console.error("[Arena] Failed to load Stage0.fbx", err);
+        console.error("[Map] Failed to load LittlestTokyo.glb", err);
       });
     }
 
