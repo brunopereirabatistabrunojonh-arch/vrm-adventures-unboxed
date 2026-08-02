@@ -730,6 +730,8 @@ export default function Game() {
           }
         }
         player.position.set(spawn.x, spawn.y + 0.4, spawn.z);
+        console.log("[Map] bbox", after.min.toArray(), after.max.toArray());
+        console.log("[Map] hist", JSON.stringify([...buckets.entries()].sort((a,b)=>b[1]-a[1]).slice(0,10)));
         console.log("[Map] spawn", spawn, "streetY", streetY, "samples", samples.length);
       }, undefined, (err) => {
         console.error("[Map] Failed to load LittlestTokyo.glb", err);
