@@ -701,8 +701,9 @@ export default function Game() {
             if (!h.length) continue;
             const y = h[0].point.y;
             // Skip spots without headroom for the character.
+            // Must be open to the sky (outdoor street, not inside a building).
             probe.set(new THREE.Vector3(x, y + 0.25, z), up);
-            probe.far = 2.0;
+            probe.far = (after.max.y - y) + 5;
             if (probe.intersectObject(stage, true).length) continue;
             samples.push({ x, z, y });
             const b = Math.round(y * 2) / 2;
