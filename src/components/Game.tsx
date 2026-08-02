@@ -678,35 +678,55 @@ export default function Game() {
         // against every mesh (floor, platforms, walls, props).
         stageColliderRef.mesh = stage;
 
-        // Find an accessible street tile: low ground with free headroom.
+        // ---- Spawn search: find the dominant street level of the diorama ----
+        // Sample a grid over the central area, bucket the top-surface heights
+        // and treat the most common height as "street" (open roads dominate).
         const down = new THREE.Vector3(0, -1, 0);
+        const up = new THREE.Vector3(0, 1, 0);
         const probe = new THREE.Raycaster();
-        let best: { x: number; z: number; y: number } | null = null;
-        const R = arenaBounds.half - 3;
-        for (let ring = 0; ring <= 8; ring++) {
-          const rad = (ring / 8) * R;
-          const steps = ring === 0 ? 1 : 16;
-          for (let s = 0; s < steps; s++) {
-            const a = (s / steps) * Math.PI * 2;
-            const x = Math.cos(a) * rad;
-            const z = Math.sin(a) * rad;
+        const R = arenaBounds.half * 0.7;
+        const samples: { x: number; z: number; y: number }[] = [];
+        const buckets = new Map<number, number>();
+        const STEPS = 26;
+        for (let i = 0; i < STEPS; i++) {
+          for (let j = 0; j < STEPS; j++) {
+            const x = -R + (2 * R * i) / (STEPS - 1);
+            const z = -R + (2 * R * j) / (STEPS - 1);
             probe.set(new THREE.Vector3(x, after.max.y + 5, z), down);
-            probe.far = (after.max.y - after.min.y) + 20;
+            probe.far = after.max.y - after.min.y + 20;
             const h = probe.intersectObject(stage, true);
             if (!h.length) continue;
             const y = h[0].point.y;
-            // Street level = close to the map's lowest surface.
-            if (y > after.min.y + 1.2) continue;
-            // Headroom check: nothing right above the spot.
-            probe.set(new THREE.Vector3(x, y + 0.3, z), new THREE.Vector3(0, 1, 0));
-            probe.far = 2.2;
+            // Skip spots without headroom for the character.
+            probe.set(new THREE.Vector3(x, y + 0.25, z), up);
+            probe.far = 2.0;
             if (probe.intersectObject(stage, true).length) continue;
-            if (!best || y < best.y) best = { x, z, y };
+            samples.push({ x, z, y });
+            const b = Math.round(y * 2) / 2;
+            buckets.set(b, (buckets.get(b) ?? 0) + 1);
           }
-          if (best) break;
         }
-        const spawn = best ?? { x: 0, z: 0, y: after.min.y };
-        player.position.set(spawn.x, spawn.y + 0.5, spawn.z);
+        let streetY = after.min.y;
+        let bestCount = -1;
+        buckets.forEach((count, b) => {
+          if (count > bestCount) {
+            bestCount = count;
+            streetY = b;
+          }
+        });
+        // Pick the sample at street level closest to the map center.
+        let spawn = { x: 0, z: 0, y: streetY };
+        let bestD = Infinity;
+        for (const s of samples) {
+          if (Math.abs(s.y - streetY) > 0.6) continue;
+          const d = s.x * s.x + s.z * s.z;
+          if (d < bestD) {
+            bestD = d;
+            spawn = s;
+          }
+        }
+        player.position.set(spawn.x, spawn.y + 0.4, spawn.z);
+        console.log("[Map] spawn", spawn, "streetY", streetY, "samples", samples.length);
       }, undefined, (err) => {
         console.error("[Map] Failed to load LittlestTokyo.glb", err);
       });
