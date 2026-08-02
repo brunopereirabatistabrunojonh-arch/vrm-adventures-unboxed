@@ -632,7 +632,7 @@ export default function Game() {
     ground.visible = false;
     scene.add(ground);
 
-    // Beach Battle arena — loaded from FBX
+    // Littlest Tokyo — main map (GLB)
     type Obstacle = { pos: THREE.Vector3; radius: number };
     const obstacles: Obstacle[] = [];
     const rng = (min: number, max: number) => Math.random() * (max - min) + min;
@@ -640,79 +640,15 @@ export default function Game() {
     const arenaBounds = { half: WORLD_SIZE / 2 };
 
     {
-      // Preload PBR textures and assign them by material name.
-      const texLoader = new THREE.TextureLoader();
-      const failedTextures: string[] = [];
-      const loadTex = (url: string, srgb: boolean, label: string) => {
-        const t = texLoader.load(
-          url,
-          undefined,
-          undefined,
-          (err) => {
-            failedTextures.push(label);
-            console.warn(`[Arena] Failed to load texture "${label}" from ${url}`, err);
-          },
-        );
-        t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-        t.wrapS = t.wrapT = THREE.RepeatWrapping;
-        t.anisotropy = 8;
-        t.flipY = false; // FBX UVs match three's default (flipY=false) — matches Maya export
-        return t;
-      };
-      const stageTex = {
-        map: loadTex(stageBaseColorAsset.url, true, "Stage_Base_color"),
-        metallic: loadTex(stageMetallicAsset.url, false, "Stage_Metallic"),
-        rough: loadTex(stageRoughnessAsset.url, false, "Stage_Roughness"),
-        alpha: loadTex(stageOpacityAsset.url, false, "Stage_Opacity"),
-      };
-      const mainTex = {
-        map: loadTex(mainBaseColorAsset.url, true, "Main_Base_Base_color"),
-        metallic: loadTex(mainMetallicAsset.url, false, "Main_Base_Metallic"),
-        rough: loadTex(mainRoughnessAsset.url, false, "Main_Base_Roughness"),
-      };
-
-      // Restore the original PBR look. Route every mesh to either the Stage
-      // or Main_Base texture set based on its source material name; log any
-      // material we can't confidently classify so the mapping can be tightened.
-      const unmatchedMaterials = new Set<string>();
-      const applyMaterial = (mesh: THREE.Mesh) => {
-        const rawName =
-          (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material)?.name || "";
-        const meshName = mesh.name || "";
-        const hay = `${rawName} ${meshName}`.toLowerCase();
-        const isMain =
-          hay.includes("main_base") || hay.includes("mainbase") || hay.includes("main");
-        const isStage = !isMain && hay.includes("stage");
-        if (!isMain && !isStage) {
-          unmatchedMaterials.add(`${rawName || "(unnamed)"} / mesh:${meshName || "(unnamed)"}`);
-        }
-        // Default unknown meshes to the Stage set (podium/props) — matches the
-        // original arena where non-base meshes belong to the platform.
-        const useStage = isStage || (!isMain && !isStage);
-        const src = isMain ? mainTex : stageTex;
-        const pbr = new THREE.MeshStandardMaterial({
-          map: src.map,
-          metalnessMap: src.metallic,
-          roughnessMap: src.rough,
-          color: 0xffffff,
-          metalness: 1.0,
-          roughness: 1.0,
-          alphaMap: useStage ? stageTex.alpha : undefined,
-          transparent: useStage,
-          alphaTest: useStage ? 0.5 : 0,
-          side: useStage ? THREE.DoubleSide : THREE.FrontSide,
-          name: rawName || (useStage ? "stage_mat" : "main_mat"),
-        });
-        mesh.material = pbr;
-      };
-
-      const fbxLoader = new FBXLoader();
-      fbxLoader.load(stageFbxAsset.url, (stage) => {
-        // Auto-fit to a target footprint so the arena fills the play area.
+      // The GLB ships with embedded PBR textures — keep the authored materials.
+      const mapLoader = new GLTFLoader();
+      mapLoader.load(tokyoMapAsset.url, (gltf) => {
+        const stage = gltf.scene;
+        // Auto-fit to a target footprint so the map fills the play area.
         const bbox = new THREE.Box3().setFromObject(stage);
         const size = new THREE.Vector3();
         bbox.getSize(size);
-        const target = 60; // desired arena footprint (units)
+        const target = 70; // desired map footprint (units)
         const maxDim = Math.max(size.x, size.z) || 1;
         const scale = target / maxDim;
         stage.scale.setScalar(scale);
@@ -730,7 +666,10 @@ export default function Game() {
           if ((m as any).isMesh) {
             m.castShadow = true;
             m.receiveShadow = true;
-            applyMaterial(m);
+            const mat = Array.isArray(m.material) ? m.material : [m.material];
+            mat.forEach((mm: any) => {
+              if (mm) mm.side = THREE.DoubleSide;
+            });
           }
         });
 
@@ -755,20 +694,11 @@ export default function Game() {
         const halfZ = (after.max.z - after.min.z) / 2;
         arenaBounds.half = Math.min(halfX, halfZ) - 1.5;
 
-        if (unmatchedMaterials.size > 0) {
-          console.warn(
-            `[Arena] ${unmatchedMaterials.size} material(s) did not match Stage/Main_Base — routed to Stage textures:`,
-            Array.from(unmatchedMaterials),
-          );
-        }
-        if (failedTextures.length > 0) {
-          console.warn("[Arena] Textures that failed to load:", failedTextures);
-        }
-        // Publish the loaded arena root so the physics loop can collide
+        // Publish the loaded map root so the physics loop can collide
         // against every mesh (floor, platforms, walls, props).
         stageColliderRef.mesh = stage;
       }, undefined, (err) => {
-        console.error("[Arena] Failed to load Stage0.fbx", err);
+        console.error("[Map] Failed to load LittlestTokyo.glb", err);
       });
     }
 
