@@ -641,7 +641,7 @@ export default function Game() {
         const bbox = new THREE.Box3().setFromObject(stage);
         const size = new THREE.Vector3();
         bbox.getSize(size);
-        const target = 70; // desired map footprint (units)
+        const target = 45; // desired map footprint (units)
         const maxDim = Math.max(size.x, size.z) || 1;
         const scale = target / maxDim;
         stage.scale.setScalar(scale);
