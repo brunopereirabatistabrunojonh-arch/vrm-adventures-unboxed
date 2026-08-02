@@ -8,14 +8,7 @@ import galaxiaAsset from "@/assets/galaxia.vrm.asset.json";
 import joggingAsset from "@/assets/Jogging.fbx.asset.json";
 import walkingAsset from "@/assets/Walking.fbx.asset.json";
 import kickAsset from "@/assets/Roundhouse_Kick.fbx.asset.json";
-import stageFbxAsset from "@/assets/arena/Stage0.fbx.asset.json";
-import stageBaseColorAsset from "@/assets/arena/Stage_Base_color.png.asset.json";
-import stageMetallicAsset from "@/assets/arena/Stage_Metallic.png.asset.json";
-import stageRoughnessAsset from "@/assets/arena/Stage_Roughness.png.asset.json";
-import stageOpacityAsset from "@/assets/arena/Stage_Opacity.png.asset.json";
-import mainBaseColorAsset from "@/assets/arena/Main_Base_Base_color.png.asset.json";
-import mainMetallicAsset from "@/assets/arena/Main_Base_Metallic.png.asset.json";
-import mainRoughnessAsset from "@/assets/arena/Main_Base_Roughness.png.asset.json";
+import tokyoMapAsset from "@/assets/LittlestTokyo.glb.asset.json";
 import { loadMixamoAnimation } from "@/lib/loadMixamoAnimation";
 import BunnyMenu from "@/components/BunnyMenu";
 
