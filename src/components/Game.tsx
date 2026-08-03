@@ -725,12 +725,19 @@ export default function Game() {
             buckets.set(b, (buckets.get(b) ?? 0) + 1);
           }
         }
+        // Rooftops can out-vote the roads, so keep every well-supported level
+        // and take the LOWEST one — the ground street of the diorama.
+        let maxCount = 0;
+        buckets.forEach((count) => {
+          if (count > maxCount) maxCount = count;
+        });
         let streetY = after.min.y;
-        let bestCount = -1;
+        let found = false;
         buckets.forEach((count, b) => {
-          if (count > bestCount) {
-            bestCount = count;
+          if (count < Math.max(4, maxCount * 0.25)) return;
+          if (!found || b < streetY) {
             streetY = b;
+            found = true;
           }
         });
         // Pick the sample at street level closest to the map center.
