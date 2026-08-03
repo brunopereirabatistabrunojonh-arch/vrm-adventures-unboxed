@@ -1462,13 +1462,13 @@ export default function Game() {
       }
       camDistCur += (camDistTarget - camDistCur) * Math.min(1, dt * 10);
       const camDist = camDistCur;
-      const camHeight = 2.2;
+      const camHeight = 3.2;
       const camOffset = new THREE.Vector3(
         -Math.sin(yaw) * camDist,
         camHeight - pitch * camDist,
         -Math.cos(yaw) * camDist,
       );
-      const camAnchor = player.position.clone().add(new THREE.Vector3(0, 1.4, 0));
+      const camAnchor = player.position.clone().add(new THREE.Vector3(0, 2.1, 0));
       let targetCamPos = camAnchor.clone().add(camOffset);
       if (stageColliderRef.mesh) {
         const dir = targetCamPos.clone().sub(camAnchor);
