@@ -600,15 +600,17 @@ export default function Game() {
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.25;
+    // Neutral output so the GLB's authored textures/materials look exactly
+    // as exported (no re-grading of the original art).
+    renderer.toneMapping = THREE.NoToneMapping;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     mount.appendChild(renderer.domElement);
 
     // Lights
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x8899aa, 2.0);
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x8899aa, 1.1);
     scene.add(hemi);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-    const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
     sun.position.set(40, 60, 20);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -634,9 +636,11 @@ export default function Game() {
     const rng = (min: number, max: number) => Math.random() * (max - min) + min;
     // Mutable half-extent for the walkable area; updated once the arena bbox is known.
     const arenaBounds = { half: WORLD_SIZE / 2 };
+    // Spawn resolved after the map loads (used by initial placement + respawn).
+    const spawnPoint = new THREE.Vector3(0, 5, 0);
 
     {
-      // The GLB ships with embedded PBR textures — keep the authored materials.
+      // The GLB ships with embedded PBR textures — materials are used as-is.
       const mapLoader = new GLTFLoader();
       mapLoader.load(tokyoMapAsset.url, (gltf) => {
         const stage = gltf.scene;
@@ -644,7 +648,7 @@ export default function Game() {
         const bbox = new THREE.Box3().setFromObject(stage);
         const size = new THREE.Vector3();
         bbox.getSize(size);
-        const target = 45; // desired map footprint (units)
+        const target = 200; // desired map footprint (units) — human-scale streets
         const maxDim = Math.max(size.x, size.z) || 1;
         const scale = target / maxDim;
         stage.scale.setScalar(scale);
@@ -662,14 +666,12 @@ export default function Game() {
           if ((m as any).isMesh) {
             m.castShadow = true;
             m.receiveShadow = true;
-            const mat = Array.isArray(m.material) ? m.material : [m.material];
-            mat.forEach((mm: any) => {
-              if (mm) mm.side = THREE.DoubleSide;
-            });
+            // Materials, textures and UVs are left exactly as authored.
           }
         });
 
         scene.add(stage);
+        stage.updateMatrixWorld(true);
 
         // Update walk clamp to the visible map footprint.
         const after = new THREE.Box3().setFromObject(stage);
@@ -680,6 +682,19 @@ export default function Game() {
         // Publish the loaded map root so the physics loop can collide
         // against every mesh (floor, platforms, walls, props).
         stageColliderRef.mesh = stage;
+        // Cache per-mesh world bounds so per-frame raycasts only test the
+        // handful of meshes near the player instead of all 70+ (perf).
+        colliderMeshes.length = 0;
+        stage.traverse((obj) => {
+          const m = obj as THREE.Mesh;
+          if ((m as any).isMesh && m.geometry) {
+            m.geometry.computeBoundingBox?.();
+            colliderMeshes.push({
+              mesh: m,
+              box: new THREE.Box3().setFromObject(m),
+            });
+          }
+        });
 
         // ---- Spawn search: find the dominant street level of the diorama ----
         // Sample a grid over the central area, bucket the top-surface heights
@@ -710,12 +725,19 @@ export default function Game() {
             buckets.set(b, (buckets.get(b) ?? 0) + 1);
           }
         }
+        // Rooftops can out-vote the roads, so keep every well-supported level
+        // and take the LOWEST one — the ground street of the diorama.
+        let maxCount = 0;
+        buckets.forEach((count) => {
+          if (count > maxCount) maxCount = count;
+        });
         let streetY = after.min.y;
-        let bestCount = -1;
+        let found = false;
         buckets.forEach((count, b) => {
-          if (count > bestCount) {
-            bestCount = count;
+          if (count < Math.max(4, maxCount * 0.25)) return;
+          if (!found || b < streetY) {
             streetY = b;
+            found = true;
           }
         });
         // Pick the sample at street level closest to the map center.
@@ -729,7 +751,9 @@ export default function Game() {
             spawn = s;
           }
         }
-        player.position.set(spawn.x, spawn.y + 0.4, spawn.z);
+        spawnPoint.set(spawn.x, spawn.y + 0.4, spawn.z);
+        player.position.copy(spawnPoint);
+        playerState.vel.set(0, 0, 0);
         console.log("[Map] bbox", after.min.toArray(), after.max.toArray());
         console.log("[Map] hist", JSON.stringify([...buckets.entries()].sort((a,b)=>b[1]-a[1]).slice(0,10)));
         console.log("[Map] spawn", spawn, "streetY", streetY, "samples", samples.length);
@@ -744,6 +768,16 @@ export default function Game() {
     // ground detection (ramps, stairs, platforms) and horizontal pushback
     // (walls, obstacles) without hand-authored primitives.
     const stageColliderRef: { mesh: THREE.Object3D | null } = { mesh: null };
+    // Broadphase: cached world-space bounds per map mesh.
+    const colliderMeshes: { mesh: THREE.Mesh; box: THREE.Box3 }[] = [];
+    const queryBox = new THREE.Box3();
+    const nearbyMeshes = (x: number, y: number, z: number, r: number) => {
+      queryBox.min.set(x - r, y - r, z - r);
+      queryBox.max.set(x + r, y + r, z + r);
+      const out: THREE.Mesh[] = [];
+      for (const c of colliderMeshes) if (c.box.intersectsBox(queryBox)) out.push(c.mesh);
+      return out;
+    };
     const groundRay = new THREE.Raycaster();
     const wallRay = new THREE.Raycaster();
     const CAPSULE_RADIUS = 0.35;
@@ -756,7 +790,8 @@ export default function Game() {
       if (!stageColliderRef.mesh) return 0;
       groundRay.set(new THREE.Vector3(x, fromY, z), new THREE.Vector3(0, -1, 0));
       groundRay.far = fromY + 50;
-      const hits = groundRay.intersectObject(stageColliderRef.mesh, true);
+      const targets = nearbyMeshes(x, fromY - 25, z, 26);
+      const hits = groundRay.intersectObjects(targets, false);
       return hits.length > 0 ? hits[0].point.y : null;
     };
 
@@ -764,12 +799,14 @@ export default function Game() {
     const pushOutWalls = (pos: THREE.Vector3) => {
       if (!stageColliderRef.mesh) return;
       const origin = new THREE.Vector3(pos.x, pos.y + CAPSULE_HEIGHT * 0.5, pos.z);
+      const targets = nearbyMeshes(origin.x, origin.y, origin.z, CAPSULE_RADIUS + 1.5);
+      if (!targets.length) return;
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2;
         const dir = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
         wallRay.set(origin, dir);
         wallRay.far = CAPSULE_RADIUS + 0.05;
-        const hits = wallRay.intersectObject(stageColliderRef.mesh, true);
+        const hits = wallRay.intersectObjects(targets, false);
         if (hits.length > 0) {
           const h = hits[0];
           // Ignore near-horizontal surfaces (that's the floor/ramp, not a wall).
@@ -1198,7 +1235,7 @@ export default function Game() {
     function doRespawn() {
       playerState.hp = PLAYER_MAX_HP;
       playerState.dead = false;
-      player.position.set(0, 5, 0);
+      player.position.copy(spawnPoint);
       playerState.vel.set(0, 0, 0);
       setHp(PLAYER_MAX_HP);
       setDead(false);
@@ -1439,7 +1476,10 @@ export default function Game() {
         dir.normalize();
         wallRay.set(camAnchor, dir);
         wallRay.far = len;
-        const hits = wallRay.intersectObject(stageColliderRef.mesh, true);
+        const hits = wallRay.intersectObjects(
+          nearbyMeshes(camAnchor.x, camAnchor.y, camAnchor.z, len + 1),
+          false,
+        );
         if (hits.length > 0) {
           const safe = Math.max(0.6, hits[0].distance - 0.2);
           targetCamPos = camAnchor.clone().add(dir.multiplyScalar(safe));
