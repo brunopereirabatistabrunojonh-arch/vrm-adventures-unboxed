@@ -648,7 +648,7 @@ export default function Game() {
         const bbox = new THREE.Box3().setFromObject(stage);
         const size = new THREE.Vector3();
         bbox.getSize(size);
-        const target = 60; // desired map footprint (units)
+        const target = 200; // desired map footprint (units) — human-scale streets
         const maxDim = Math.max(size.x, size.z) || 1;
         const scale = target / maxDim;
         stage.scale.setScalar(scale);
