@@ -761,6 +761,17 @@ export default function Game() {
     // ground detection (ramps, stairs, platforms) and horizontal pushback
     // (walls, obstacles) without hand-authored primitives.
     const stageColliderRef: { mesh: THREE.Object3D | null } = { mesh: null };
+    // Broadphase: cached world-space bounds per map mesh.
+    const colliderMeshes: { mesh: THREE.Mesh; box: THREE.Box3 }[] = [];
+    const queryBox = new THREE.Box3();
+    const queryVec = new THREE.Vector3();
+    const nearbyMeshes = (x: number, y: number, z: number, r: number) => {
+      queryBox.min.set(x - r, y - r, z - r);
+      queryBox.max.set(x + r, y + r, z + r);
+      const out: THREE.Mesh[] = [];
+      for (const c of colliderMeshes) if (c.box.intersectsBox(queryBox)) out.push(c.mesh);
+      return out;
+    };
     const groundRay = new THREE.Raycaster();
     const wallRay = new THREE.Raycaster();
     const CAPSULE_RADIUS = 0.35;
@@ -773,7 +784,8 @@ export default function Game() {
       if (!stageColliderRef.mesh) return 0;
       groundRay.set(new THREE.Vector3(x, fromY, z), new THREE.Vector3(0, -1, 0));
       groundRay.far = fromY + 50;
-      const hits = groundRay.intersectObject(stageColliderRef.mesh, true);
+      const targets = nearbyMeshes(x, fromY - 25, z, 26);
+      const hits = groundRay.intersectObjects(targets, false);
       return hits.length > 0 ? hits[0].point.y : null;
     };
 
@@ -781,12 +793,14 @@ export default function Game() {
     const pushOutWalls = (pos: THREE.Vector3) => {
       if (!stageColliderRef.mesh) return;
       const origin = new THREE.Vector3(pos.x, pos.y + CAPSULE_HEIGHT * 0.5, pos.z);
+      const targets = nearbyMeshes(origin.x, origin.y, origin.z, CAPSULE_RADIUS + 1.5);
+      if (!targets.length) return;
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2;
         const dir = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
         wallRay.set(origin, dir);
         wallRay.far = CAPSULE_RADIUS + 0.05;
-        const hits = wallRay.intersectObject(stageColliderRef.mesh, true);
+        const hits = wallRay.intersectObjects(targets, false);
         if (hits.length > 0) {
           const h = hits[0];
           // Ignore near-horizontal surfaces (that's the floor/ramp, not a wall).
