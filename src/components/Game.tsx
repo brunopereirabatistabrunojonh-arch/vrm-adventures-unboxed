@@ -781,7 +781,7 @@ export default function Game() {
     const groundRay = new THREE.Raycaster();
     const wallRay = new THREE.Raycaster();
     const CAPSULE_RADIUS = 0.35;
-    const CAPSULE_HEIGHT = 1.7; // total; feet at 0, head at CAPSULE_HEIGHT
+    const CAPSULE_HEIGHT = 2.6; // total; feet at 0, head at CAPSULE_HEIGHT
     const STEP_HEIGHT = 0.45;    // stairs/ramps we can walk up
 
     // Sample the floor height beneath a world-space position. Returns the
@@ -887,7 +887,7 @@ export default function Game() {
         sceneRoot.scale.setScalar(1);
         sceneRoot.position.set(0, 0, 0);
         sceneRoot.updateMatrixWorld(true);
-        const targetHeight = 1.7;
+        const targetHeight = 2.6;
         // Only trust the head bone measurement for real VRM rigs. On fake
         // rigs it can sit far from the visual top of the mesh, producing a
         // gigantic scale. Use the bounding box in that case.
@@ -1462,13 +1462,13 @@ export default function Game() {
       }
       camDistCur += (camDistTarget - camDistCur) * Math.min(1, dt * 10);
       const camDist = camDistCur;
-      const camHeight = 2.2;
+      const camHeight = 3.2;
       const camOffset = new THREE.Vector3(
         -Math.sin(yaw) * camDist,
         camHeight - pitch * camDist,
         -Math.cos(yaw) * camDist,
       );
-      const camAnchor = player.position.clone().add(new THREE.Vector3(0, 1.4, 0));
+      const camAnchor = player.position.clone().add(new THREE.Vector3(0, 2.1, 0));
       let targetCamPos = camAnchor.clone().add(camOffset);
       if (stageColliderRef.mesh) {
         const dir = targetCamPos.clone().sub(camAnchor);
