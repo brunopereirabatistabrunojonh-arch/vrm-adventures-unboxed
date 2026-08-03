@@ -1228,7 +1228,7 @@ export default function Game() {
     function doRespawn() {
       playerState.hp = PLAYER_MAX_HP;
       playerState.dead = false;
-      player.position.set(0, 5, 0);
+      player.position.copy(spawnPoint);
       playerState.vel.set(0, 0, 0);
       setHp(PLAYER_MAX_HP);
       setDead(false);
@@ -1469,7 +1469,10 @@ export default function Game() {
         dir.normalize();
         wallRay.set(camAnchor, dir);
         wallRay.far = len;
-        const hits = wallRay.intersectObject(stageColliderRef.mesh, true);
+        const hits = wallRay.intersectObjects(
+          nearbyMeshes(camAnchor.x, camAnchor.y, camAnchor.z, len + 1),
+          false,
+        );
         if (hits.length > 0) {
           const safe = Math.max(0.6, hits[0].distance - 0.2);
           targetCamPos = camAnchor.clone().add(dir.multiplyScalar(safe));
