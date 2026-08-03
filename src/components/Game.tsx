@@ -636,9 +636,11 @@ export default function Game() {
     const rng = (min: number, max: number) => Math.random() * (max - min) + min;
     // Mutable half-extent for the walkable area; updated once the arena bbox is known.
     const arenaBounds = { half: WORLD_SIZE / 2 };
+    // Spawn resolved after the map loads (used by initial placement + respawn).
+    const spawnPoint = new THREE.Vector3(0, 5, 0);
 
     {
-      // The GLB ships with embedded PBR textures — keep the authored materials.
+      // The GLB ships with embedded PBR textures — materials are used as-is.
       const mapLoader = new GLTFLoader();
       mapLoader.load(tokyoMapAsset.url, (gltf) => {
         const stage = gltf.scene;
@@ -646,7 +648,7 @@ export default function Game() {
         const bbox = new THREE.Box3().setFromObject(stage);
         const size = new THREE.Vector3();
         bbox.getSize(size);
-        const target = 45; // desired map footprint (units)
+        const target = 60; // desired map footprint (units)
         const maxDim = Math.max(size.x, size.z) || 1;
         const scale = target / maxDim;
         stage.scale.setScalar(scale);
@@ -664,14 +666,12 @@ export default function Game() {
           if ((m as any).isMesh) {
             m.castShadow = true;
             m.receiveShadow = true;
-            const mat = Array.isArray(m.material) ? m.material : [m.material];
-            mat.forEach((mm: any) => {
-              if (mm) mm.side = THREE.DoubleSide;
-            });
+            // Materials, textures and UVs are left exactly as authored.
           }
         });
 
         scene.add(stage);
+        stage.updateMatrixWorld(true);
 
         // Update walk clamp to the visible map footprint.
         const after = new THREE.Box3().setFromObject(stage);
@@ -682,6 +682,19 @@ export default function Game() {
         // Publish the loaded map root so the physics loop can collide
         // against every mesh (floor, platforms, walls, props).
         stageColliderRef.mesh = stage;
+        // Cache per-mesh world bounds so per-frame raycasts only test the
+        // handful of meshes near the player instead of all 70+ (perf).
+        colliderMeshes.length = 0;
+        stage.traverse((obj) => {
+          const m = obj as THREE.Mesh;
+          if ((m as any).isMesh && m.geometry) {
+            m.geometry.computeBoundingBox?.();
+            colliderMeshes.push({
+              mesh: m,
+              box: new THREE.Box3().setFromObject(m),
+            });
+          }
+        });
 
         // ---- Spawn search: find the dominant street level of the diorama ----
         // Sample a grid over the central area, bucket the top-surface heights
@@ -731,7 +744,9 @@ export default function Game() {
             spawn = s;
           }
         }
-        player.position.set(spawn.x, spawn.y + 0.4, spawn.z);
+        spawnPoint.set(spawn.x, spawn.y + 0.4, spawn.z);
+        player.position.copy(spawnPoint);
+        playerState.vel.set(0, 0, 0);
         console.log("[Map] bbox", after.min.toArray(), after.max.toArray());
         console.log("[Map] hist", JSON.stringify([...buckets.entries()].sort((a,b)=>b[1]-a[1]).slice(0,10)));
         console.log("[Map] spawn", spawn, "streetY", streetY, "samples", samples.length);
