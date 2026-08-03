@@ -887,7 +887,7 @@ export default function Game() {
         sceneRoot.scale.setScalar(1);
         sceneRoot.position.set(0, 0, 0);
         sceneRoot.updateMatrixWorld(true);
-        const targetHeight = 1.7;
+        const targetHeight = 2.6;
         // Only trust the head bone measurement for real VRM rigs. On fake
         // rigs it can sit far from the visual top of the mesh, producing a
         // gigantic scale. Use the bounding box in that case.
