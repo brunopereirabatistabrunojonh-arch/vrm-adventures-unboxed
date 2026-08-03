@@ -764,7 +764,6 @@ export default function Game() {
     // Broadphase: cached world-space bounds per map mesh.
     const colliderMeshes: { mesh: THREE.Mesh; box: THREE.Box3 }[] = [];
     const queryBox = new THREE.Box3();
-    const queryVec = new THREE.Vector3();
     const nearbyMeshes = (x: number, y: number, z: number, r: number) => {
       queryBox.min.set(x - r, y - r, z - r);
       queryBox.max.set(x + r, y + r, z + r);
