@@ -781,7 +781,7 @@ export default function Game() {
     const groundRay = new THREE.Raycaster();
     const wallRay = new THREE.Raycaster();
     const CAPSULE_RADIUS = 0.35;
-    const CAPSULE_HEIGHT = 1.7; // total; feet at 0, head at CAPSULE_HEIGHT
+    const CAPSULE_HEIGHT = 2.6; // total; feet at 0, head at CAPSULE_HEIGHT
     const STEP_HEIGHT = 0.45;    // stairs/ramps we can walk up
 
     // Sample the floor height beneath a world-space position. Returns the
