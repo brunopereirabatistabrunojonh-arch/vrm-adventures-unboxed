@@ -680,7 +680,6 @@ export default function Game() {
 
         scene.add(stage);
         stage.updateMatrixWorld(true);
-        renderer.shadowMap.needsUpdate = true;
 
         // Update walk clamp to the visible map footprint.
         const after = new THREE.Box3().setFromObject(stage);
