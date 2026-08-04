@@ -603,7 +603,7 @@ export default function Game() {
       antialias: true,
       powerPreference: "high-performance",
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isLowPower ? 1.5 : 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isLowPower ? 1.2 : 1.75));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -620,12 +620,19 @@ export default function Game() {
     const sun = new THREE.DirectionalLight(0xffffff, 1.6);
     sun.position.set(40, 60, 20);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -80;
-    sun.shadow.camera.right = 80;
-    sun.shadow.camera.top = 80;
-    sun.shadow.camera.bottom = -80;
+    sun.shadow.mapSize.set(isLowPower ? 1024 : 2048, isLowPower ? 1024 : 2048);
+    // Tight shadow frustum that follows the player: same visual quality around
+    // the character, but the shadow pass culls almost the whole city each frame.
+    sun.shadow.camera.left = -22;
+    sun.shadow.camera.right = 22;
+    sun.shadow.camera.top = 22;
+    sun.shadow.camera.bottom = -22;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 200;
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.06;
     scene.add(sun);
+    scene.add(sun.target);
 
     // Invisible safety floor (physics fallback at y=0)
     const ground = new THREE.Mesh(
@@ -1252,6 +1259,8 @@ export default function Game() {
 
     const clock = new THREE.Clock();
     let raf = 0;
+    let occlusionTick = 0;
+    let occlusionDist = 0;
 
     const animate = () => {
       raf = requestAnimationFrame(animate);
@@ -1470,6 +1479,9 @@ export default function Game() {
         zoomRef.current = 0;
       }
       camDistCur += (camDistTarget - camDistCur) * Math.min(1, dt * 10);
+      // Keep the (small) shadow frustum centred on the player.
+      sun.target.position.copy(player.position);
+      sun.position.set(player.position.x + 40, player.position.y + 60, player.position.z + 20);
       const camDist = camDistCur;
       const camHeight = 3.2;
       const camOffset = new THREE.Vector3(
@@ -1479,7 +1491,8 @@ export default function Game() {
       );
       const camAnchor = player.position.clone().add(new THREE.Vector3(0, 2.1, 0));
       let targetCamPos = camAnchor.clone().add(camOffset);
-      if (stageColliderRef.mesh) {
+      occlusionTick = (occlusionTick + 1) % 2;
+      if (stageColliderRef.mesh && occlusionTick === 0) {
         const dir = targetCamPos.clone().sub(camAnchor);
         const len = dir.length();
         dir.normalize();
@@ -1489,10 +1502,11 @@ export default function Game() {
           nearbyMeshes(camAnchor.x, camAnchor.y, camAnchor.z, len + 1),
           false,
         );
-        if (hits.length > 0) {
-          const safe = Math.max(0.6, hits[0].distance - 0.2);
-          targetCamPos = camAnchor.clone().add(dir.multiplyScalar(safe));
-        }
+        occlusionDist = hits.length > 0 ? Math.max(0.6, hits[0].distance - 0.2) : 0;
+      }
+      if (occlusionDist > 0) {
+        const dir = targetCamPos.clone().sub(camAnchor).normalize();
+        targetCamPos = camAnchor.clone().add(dir.multiplyScalar(occlusionDist));
       }
       camera.position.lerp(targetCamPos, Math.min(1, dt * 12));
       camera.lookAt(camAnchor);
