@@ -785,9 +785,9 @@ export default function Game() {
     // Broadphase: cached world-space bounds per map mesh.
     const colliderMeshes: { mesh: THREE.Mesh; box: THREE.Box3 }[] = [];
     const queryBox = new THREE.Box3();
-    const nearbyMeshes = (x: number, y: number, z: number, r: number) => {
-      queryBox.min.set(x - r, y - r, z - r);
-      queryBox.max.set(x + r, y + r, z + r);
+    const nearbyMeshes = (x: number, y: number, z: number, r: number, ry = r) => {
+      queryBox.min.set(x - r, y - ry, z - r);
+      queryBox.max.set(x + r, y + ry, z + r);
       const out: THREE.Mesh[] = [];
       for (const c of colliderMeshes) if (c.box.intersectsBox(queryBox)) out.push(c.mesh);
       return out;
@@ -804,7 +804,8 @@ export default function Game() {
       if (!stageColliderRef.mesh) return 0;
       groundRay.set(new THREE.Vector3(x, fromY, z), new THREE.Vector3(0, -1, 0));
       groundRay.far = fromY + 50;
-      const targets = nearbyMeshes(x, fromY - 25, z, 26);
+      // Narrow in XZ (only what's under our feet), tall in Y.
+      const targets = nearbyMeshes(x, fromY - 25, z, 1.5, 26);
       const hits = groundRay.intersectObjects(targets, false);
       return hits.length > 0 ? hits[0].point.y : null;
     };
