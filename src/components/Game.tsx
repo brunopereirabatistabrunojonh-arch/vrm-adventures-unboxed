@@ -600,13 +600,13 @@ export default function Game() {
       (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ||
         (navigator.hardwareConcurrency ?? 8) <= 4);
     const renderer = new THREE.WebGLRenderer({
-      antialias: !isLowPower,
+      antialias: true,
       powerPreference: "high-performance",
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isLowPower ? 1.25 : 1.75));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isLowPower ? 1.5 : 2));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = isLowPower ? THREE.BasicShadowMap : THREE.PCFShadowMap;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     // The city is static: render the shadow map once instead of every frame.
     renderer.shadowMap.autoUpdate = false;
     renderer.shadowMap.needsUpdate = true;
@@ -623,11 +623,11 @@ export default function Game() {
     const sun = new THREE.DirectionalLight(0xffffff, 1.6);
     sun.position.set(40, 60, 20);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(isLowPower ? 1024 : 2048, isLowPower ? 1024 : 2048);
-    sun.shadow.camera.left = -60;
-    sun.shadow.camera.right = 60;
-    sun.shadow.camera.top = 60;
-    sun.shadow.camera.bottom = -60;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -80;
+    sun.shadow.camera.right = 80;
+    sun.shadow.camera.top = 80;
+    sun.shadow.camera.bottom = -80;
     scene.add(sun);
 
     // Invisible safety floor (physics fallback at y=0)
@@ -674,10 +674,8 @@ export default function Game() {
         stage.traverse((obj) => {
           const m = obj as THREE.Mesh;
           if ((m as any).isMesh) {
-            // Only receive shadows on the city: casting from every prop is the
-            // single biggest cost on mobile and barely visible in a diorama.
-            m.castShadow = false;
-            m.receiveShadow = !isLowPower;
+            m.castShadow = true;
+            m.receiveShadow = true;
             m.frustumCulled = true;
             // Materials, textures and UVs are left exactly as authored.
           }
