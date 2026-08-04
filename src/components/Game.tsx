@@ -1475,6 +1475,9 @@ export default function Game() {
         zoomRef.current = 0;
       }
       camDistCur += (camDistTarget - camDistCur) * Math.min(1, dt * 10);
+      // Keep the (small) shadow frustum centred on the player.
+      sun.target.position.copy(player.position);
+      sun.position.set(player.position.x + 40, player.position.y + 60, player.position.z + 20);
       const camDist = camDistCur;
       const camHeight = 3.2;
       const camOffset = new THREE.Vector3(
@@ -1484,7 +1487,8 @@ export default function Game() {
       );
       const camAnchor = player.position.clone().add(new THREE.Vector3(0, 2.1, 0));
       let targetCamPos = camAnchor.clone().add(camOffset);
-      if (stageColliderRef.mesh) {
+      occlusionTick = (occlusionTick + 1) % 2;
+      if (stageColliderRef.mesh && occlusionTick === 0) {
         const dir = targetCamPos.clone().sub(camAnchor);
         const len = dir.length();
         dir.normalize();
@@ -1494,10 +1498,11 @@ export default function Game() {
           nearbyMeshes(camAnchor.x, camAnchor.y, camAnchor.z, len + 1),
           false,
         );
-        if (hits.length > 0) {
-          const safe = Math.max(0.6, hits[0].distance - 0.2);
-          targetCamPos = camAnchor.clone().add(dir.multiplyScalar(safe));
-        }
+        occlusionDist = hits.length > 0 ? Math.max(0.6, hits[0].distance - 0.2) : 0;
+      }
+      if (occlusionDist > 0) {
+        const dir = targetCamPos.clone().sub(camAnchor).normalize();
+        targetCamPos = camAnchor.clone().add(dir.multiplyScalar(occlusionDist));
       }
       camera.position.lerp(targetCamPos, Math.min(1, dt * 12));
       camera.lookAt(camAnchor);
