@@ -603,7 +603,7 @@ export default function Game() {
       antialias: true,
       powerPreference: "high-performance",
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isLowPower ? 1.5 : 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isLowPower ? 1.2 : 1.75));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -620,12 +620,17 @@ export default function Game() {
     const sun = new THREE.DirectionalLight(0xffffff, 1.6);
     sun.position.set(40, 60, 20);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -80;
-    sun.shadow.camera.right = 80;
-    sun.shadow.camera.top = 80;
-    sun.shadow.camera.bottom = -80;
+    sun.shadow.mapSize.set(isLowPower ? 1024 : 2048, isLowPower ? 1024 : 2048);
+    // Tight shadow frustum that follows the player: same visual quality around
+    // the character, but the shadow pass culls almost the whole city each frame.
+    sun.shadow.camera.left = -22;
+    sun.shadow.camera.right = 22;
+    sun.shadow.camera.top = 22;
+    sun.shadow.camera.bottom = -22;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 200;
     scene.add(sun);
+    scene.add(sun.target);
 
     // Invisible safety floor (physics fallback at y=0)
     const ground = new THREE.Mesh(
