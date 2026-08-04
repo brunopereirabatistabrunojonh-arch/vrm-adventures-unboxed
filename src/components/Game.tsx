@@ -1257,6 +1257,8 @@ export default function Game() {
 
     const clock = new THREE.Clock();
     let raf = 0;
+    let occlusionTick = 0;
+    let occlusionDist = 0;
 
     const animate = () => {
       raf = requestAnimationFrame(animate);
