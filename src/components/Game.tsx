@@ -629,6 +629,8 @@ export default function Game() {
     sun.shadow.camera.bottom = -22;
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = 200;
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.06;
     scene.add(sun);
     scene.add(sun.target);
 
