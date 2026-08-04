@@ -607,9 +607,6 @@ export default function Game() {
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    // The city is static: render the shadow map once instead of every frame.
-    renderer.shadowMap.autoUpdate = false;
-    renderer.shadowMap.needsUpdate = true;
     // Neutral output so the GLB's authored textures/materials look exactly
     // as exported (no re-grading of the original art).
     renderer.toneMapping = THREE.NoToneMapping;
