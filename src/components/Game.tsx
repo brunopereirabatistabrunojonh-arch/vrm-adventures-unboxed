@@ -595,11 +595,21 @@ export default function Game() {
       500
     );
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const isLowPower =
+      typeof navigator !== "undefined" &&
+      (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ||
+        (navigator.hardwareConcurrency ?? 8) <= 4);
+    const renderer = new THREE.WebGLRenderer({
+      antialias: !isLowPower,
+      powerPreference: "high-performance",
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isLowPower ? 1.25 : 1.75));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = isLowPower ? THREE.BasicShadowMap : THREE.PCFShadowMap;
+    // The city is static: render the shadow map once instead of every frame.
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = true;
     // Neutral output so the GLB's authored textures/materials look exactly
     // as exported (no re-grading of the original art).
     renderer.toneMapping = THREE.NoToneMapping;
@@ -613,11 +623,11 @@ export default function Game() {
     const sun = new THREE.DirectionalLight(0xffffff, 1.6);
     sun.position.set(40, 60, 20);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -80;
-    sun.shadow.camera.right = 80;
-    sun.shadow.camera.top = 80;
-    sun.shadow.camera.bottom = -80;
+    sun.shadow.mapSize.set(isLowPower ? 1024 : 2048, isLowPower ? 1024 : 2048);
+    sun.shadow.camera.left = -60;
+    sun.shadow.camera.right = 60;
+    sun.shadow.camera.top = 60;
+    sun.shadow.camera.bottom = -60;
     scene.add(sun);
 
     // Invisible safety floor (physics fallback at y=0)
@@ -664,14 +674,18 @@ export default function Game() {
         stage.traverse((obj) => {
           const m = obj as THREE.Mesh;
           if ((m as any).isMesh) {
-            m.castShadow = true;
-            m.receiveShadow = true;
+            // Only receive shadows on the city: casting from every prop is the
+            // single biggest cost on mobile and barely visible in a diorama.
+            m.castShadow = false;
+            m.receiveShadow = !isLowPower;
+            m.frustumCulled = true;
             // Materials, textures and UVs are left exactly as authored.
           }
         });
 
         scene.add(stage);
         stage.updateMatrixWorld(true);
+        renderer.shadowMap.needsUpdate = true;
 
         // Update walk clamp to the visible map footprint.
         const after = new THREE.Box3().setFromObject(stage);
@@ -771,9 +785,9 @@ export default function Game() {
     // Broadphase: cached world-space bounds per map mesh.
     const colliderMeshes: { mesh: THREE.Mesh; box: THREE.Box3 }[] = [];
     const queryBox = new THREE.Box3();
-    const nearbyMeshes = (x: number, y: number, z: number, r: number) => {
-      queryBox.min.set(x - r, y - r, z - r);
-      queryBox.max.set(x + r, y + r, z + r);
+    const nearbyMeshes = (x: number, y: number, z: number, r: number, ry = r) => {
+      queryBox.min.set(x - r, y - ry, z - r);
+      queryBox.max.set(x + r, y + ry, z + r);
       const out: THREE.Mesh[] = [];
       for (const c of colliderMeshes) if (c.box.intersectsBox(queryBox)) out.push(c.mesh);
       return out;
@@ -790,7 +804,8 @@ export default function Game() {
       if (!stageColliderRef.mesh) return 0;
       groundRay.set(new THREE.Vector3(x, fromY, z), new THREE.Vector3(0, -1, 0));
       groundRay.far = fromY + 50;
-      const targets = nearbyMeshes(x, fromY - 25, z, 26);
+      // Narrow in XZ (only what's under our feet), tall in Y.
+      const targets = nearbyMeshes(x, fromY - 25, z, 1.5, 26);
       const hits = groundRay.intersectObjects(targets, false);
       return hits.length > 0 ? hits[0].point.y : null;
     };
