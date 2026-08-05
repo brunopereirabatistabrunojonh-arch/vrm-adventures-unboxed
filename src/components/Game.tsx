@@ -613,13 +613,19 @@ export default function Game() {
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       powerPreference: "high-performance",
+      stencil: false,
+      precision: isLowPower ? "mediump" : "highp",
     });
-    const maxPixelRatio = isLowPower ? 1 : 1.5;
-    let renderPixelRatio = Math.min(window.devicePixelRatio, maxPixelRatio);
+    // Phones with DPR 2–4 were still drawing millions of pixels per frame.
+    // Keep the CSS canvas sharp while using a smaller internal framebuffer;
+    // adaptive resolution can then recover quality when the device has room.
+    const maxPixelRatio = isLowPower ? 0.9 : 1.5;
+    const minPixelRatio = isLowPower ? 0.5 : 0.65;
+    let renderPixelRatio = Math.min(window.devicePixelRatio, isLowPower ? 0.75 : maxPixelRatio);
     renderer.setPixelRatio(renderPixelRatio);
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = isLowPower ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
     // The city and its lights keep their full shadow quality, but the costly
     // shadow atlas is refreshed at a controlled cadence instead of for every
     // display frame. The regular colour pass still renders every frame.
@@ -638,7 +644,7 @@ export default function Game() {
     const sun = new THREE.DirectionalLight(0xffffff, 1.6);
     sun.position.set(40, 60, 20);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(isLowPower ? 1024 : 2048, isLowPower ? 1024 : 2048);
+    sun.shadow.mapSize.set(isLowPower ? 512 : 2048, isLowPower ? 512 : 2048);
     // Tight shadow frustum that follows the player: same visual quality around
     // the character, but the shadow pass culls almost the whole city each frame.
     sun.shadow.camera.left = -22;
@@ -707,10 +713,10 @@ export default function Game() {
             // every prop on every frame while preserving authored transforms.
             m.matrixAutoUpdate = false;
             const geometryWithBvh = m.geometry as THREE.BufferGeometry & {
-              computeBoundsTree?: (options?: { maxLeafTris?: number }) => void;
+              computeBoundsTree?: (options?: { targetLeafSize?: number }) => void;
             };
             if (!geometryWithBvh.boundsTree) {
-              geometryWithBvh.computeBoundsTree?.({ maxLeafTris: 20 });
+              geometryWithBvh.computeBoundsTree?.({ targetLeafSize: 20 });
             }
             // Materials, textures and UVs are left exactly as authored.
           }
@@ -817,15 +823,21 @@ export default function Game() {
     // Broadphase: cached world-space bounds per map mesh.
     const colliderMeshes: { mesh: THREE.Mesh; box: THREE.Box3 }[] = [];
     const queryBox = new THREE.Box3();
-    const nearbyMeshes = (x: number, y: number, z: number, r: number, ry = r) => {
+    const nearbyMeshes = (x: number, y: number, z: number, r: number, ry = r, out: THREE.Mesh[] = []) => {
+      out.length = 0;
       queryBox.min.set(x - r, y - ry, z - r);
       queryBox.max.set(x + r, y + ry, z + r);
-      const out: THREE.Mesh[] = [];
       for (const c of colliderMeshes) if (c.box.intersectsBox(queryBox)) out.push(c.mesh);
       return out;
     };
     const groundRay = new THREE.Raycaster();
     const wallRay = new THREE.Raycaster();
+    const groundTargets: THREE.Mesh[] = [];
+    const wallTargets: THREE.Mesh[] = [];
+    const cameraTargets: THREE.Mesh[] = [];
+    const rayOrigin = new THREE.Vector3();
+    const rayDirection = new THREE.Vector3();
+    const worldNormal = new THREE.Vector3();
     const CAPSULE_RADIUS = 0.35;
     const CAPSULE_HEIGHT = 2.6; // total; feet at 0, head at CAPSULE_HEIGHT
     const STEP_HEIGHT = 0.45;    // stairs/ramps we can walk up
@@ -834,11 +846,13 @@ export default function Game() {
     // walkable Y or null if nothing is below (out of arena).
     const sampleGround = (x: number, z: number, fromY: number): number | null => {
       if (!stageColliderRef.mesh) return 0;
-      groundRay.set(new THREE.Vector3(x, fromY, z), new THREE.Vector3(0, -1, 0));
+      rayOrigin.set(x, fromY, z);
+      rayDirection.set(0, -1, 0);
+      groundRay.set(rayOrigin, rayDirection);
       groundRay.far = fromY + 50;
       groundRay.firstHitOnly = true;
       // Narrow in XZ (only what's under our feet), tall in Y.
-      const targets = nearbyMeshes(x, fromY - 25, z, 1.5, 26);
+      const targets = nearbyMeshes(x, fromY - 25, z, 1.5, 26, groundTargets);
       const hits = groundRay.intersectObjects(targets, false);
       return hits.length > 0 ? hits[0].point.y : null;
     };
@@ -846,13 +860,13 @@ export default function Game() {
     // Push the position out of any wall it entered along 8 compass directions.
     const pushOutWalls = (pos: THREE.Vector3) => {
       if (!stageColliderRef.mesh) return;
-      const origin = new THREE.Vector3(pos.x, pos.y + CAPSULE_HEIGHT * 0.5, pos.z);
-      const targets = nearbyMeshes(origin.x, origin.y, origin.z, CAPSULE_RADIUS + 1.5);
+      rayOrigin.set(pos.x, pos.y + CAPSULE_HEIGHT * 0.5, pos.z);
+      const targets = nearbyMeshes(rayOrigin.x, rayOrigin.y, rayOrigin.z, CAPSULE_RADIUS + 1.5, CAPSULE_RADIUS + 1.5, wallTargets);
       if (!targets.length) return;
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2;
-        const dir = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
-        wallRay.set(origin, dir);
+        rayDirection.set(Math.cos(a), 0, Math.sin(a));
+        wallRay.set(rayOrigin, rayDirection);
         wallRay.far = CAPSULE_RADIUS + 0.05;
         wallRay.firstHitOnly = true;
         const hits = wallRay.intersectObjects(targets, false);
@@ -861,13 +875,13 @@ export default function Game() {
           // Ignore near-horizontal surfaces (that's the floor/ramp, not a wall).
           const n = h.face?.normal;
           if (n) {
-            const worldN = n.clone().transformDirection(h.object.matrixWorld).normalize();
-            if (Math.abs(worldN.y) > 0.6) continue;
+            worldNormal.copy(n).transformDirection(h.object.matrixWorld).normalize();
+            if (Math.abs(worldNormal.y) > 0.6) continue;
           }
           const overlap = CAPSULE_RADIUS - h.distance;
           if (overlap > 0) {
-            pos.x -= dir.x * overlap;
-            pos.z -= dir.z * overlap;
+            pos.x -= rayDirection.x * overlap;
+            pos.z -= rayDirection.z * overlap;
           }
         }
       }
