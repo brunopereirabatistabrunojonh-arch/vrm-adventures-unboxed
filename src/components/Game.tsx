@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { VRMLoaderPlugin, VRMUtils, type VRM } from "@pixiv/three-vrm";
+import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 import characterAsset from "@/assets/character.vrm.asset.json";
 import galaxiaAsset from "@/assets/galaxia.vrm.asset.json";
 import joggingAsset from "@/assets/Jogging.fbx.asset.json";
@@ -11,6 +12,16 @@ import kickAsset from "@/assets/Roundhouse_Kick.fbx.asset.json";
 import tokyoMapAsset from "@/assets/LittlestTokyo.glb.asset.json";
 import { loadMixamoAnimation } from "@/lib/loadMixamoAnimation";
 import BunnyMenu from "@/components/BunnyMenu";
+
+// Accelerate Three.js raycasts against the detailed city without changing its
+// visible geometry, materials, textures or UVs.
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
+const bvhGeometry = THREE.BufferGeometry.prototype as THREE.BufferGeometry & {
+  computeBoundsTree?: typeof computeBoundsTree;
+  disposeBoundsTree?: typeof disposeBoundsTree;
+};
+bvhGeometry.computeBoundsTree = computeBoundsTree;
+bvhGeometry.disposeBoundsTree = disposeBoundsTree;
 
 // ---- Fake VRM humanoid wrapper -------------------------------------------
 // Some character GLBs (e.g. VRoid exports converted to plain glTF) use the
@@ -695,6 +706,12 @@ export default function Game() {
             // Littlest Tokyo is static. Avoid rebuilding local transforms for
             // every prop on every frame while preserving authored transforms.
             m.matrixAutoUpdate = false;
+            const geometryWithBvh = m.geometry as THREE.BufferGeometry & {
+              computeBoundsTree?: (options?: { maxLeafTris?: number }) => void;
+            };
+            if (!geometryWithBvh.boundsTree) {
+              geometryWithBvh.computeBoundsTree?.({ maxLeafTris: 20 });
+            }
             // Materials, textures and UVs are left exactly as authored.
           }
         });
@@ -819,6 +836,7 @@ export default function Game() {
       if (!stageColliderRef.mesh) return 0;
       groundRay.set(new THREE.Vector3(x, fromY, z), new THREE.Vector3(0, -1, 0));
       groundRay.far = fromY + 50;
+      groundRay.firstHitOnly = true;
       // Narrow in XZ (only what's under our feet), tall in Y.
       const targets = nearbyMeshes(x, fromY - 25, z, 1.5, 26);
       const hits = groundRay.intersectObjects(targets, false);
@@ -836,6 +854,7 @@ export default function Game() {
         const dir = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
         wallRay.set(origin, dir);
         wallRay.far = CAPSULE_RADIUS + 0.05;
+        wallRay.firstHitOnly = true;
         const hits = wallRay.intersectObjects(targets, false);
         if (hits.length > 0) {
           const h = hits[0];
@@ -1543,6 +1562,7 @@ export default function Game() {
         dir.normalize();
         wallRay.set(camAnchor, dir);
         wallRay.far = len;
+        wallRay.firstHitOnly = true;
         const hits = wallRay.intersectObjects(
           nearbyMeshes(camAnchor.x, camAnchor.y, camAnchor.z, len + 1),
           false,
