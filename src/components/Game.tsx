@@ -603,7 +603,9 @@ export default function Game() {
       antialias: true,
       powerPreference: "high-performance",
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isLowPower ? 1.2 : 1.75));
+    const maxPixelRatio = isLowPower ? 1 : 1.5;
+    let renderPixelRatio = Math.min(window.devicePixelRatio, maxPixelRatio);
+    renderer.setPixelRatio(renderPixelRatio);
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -683,7 +685,11 @@ export default function Game() {
         stage.traverse((obj) => {
           const m = obj as THREE.Mesh;
           if ((m as any).isMesh) {
-            m.castShadow = true;
+            // The imported city is static and already carries its authored
+            // PBR shading. Let it receive character/enemy shadows, but don't
+            // render the whole city a second time into the moving shadow map.
+            // Textures, materials, UVs and visible geometry remain untouched.
+            m.castShadow = false;
             m.receiveShadow = true;
             m.frustumCulled = true;
             // Littlest Tokyo is static. Avoid rebuilding local transforms for
@@ -1273,6 +1279,8 @@ export default function Game() {
     let occlusionDist = 0;
     let shadowTick = 0;
     let wasPaused = false;
+    let perfElapsed = 0;
+    let perfFrames = 0;
 
     const animate = () => {
       raf = requestAnimationFrame(animate);
@@ -1293,6 +1301,24 @@ export default function Game() {
         return;
       }
       wasPaused = false;
+
+      // Adaptive internal resolution protects mobile devices from sustained
+      // frame drops while leaving CSS/UI dimensions and game mechanics intact.
+      perfElapsed += dt;
+      perfFrames += 1;
+      if (perfElapsed >= 2) {
+        const measuredFps = perfFrames / perfElapsed;
+        let nextRatio = renderPixelRatio;
+        if (measuredFps < 28) nextRatio = Math.max(0.65, renderPixelRatio - 0.15);
+        else if (measuredFps > 52) nextRatio = Math.min(maxPixelRatio, renderPixelRatio + 0.1);
+        if (Math.abs(nextRatio - renderPixelRatio) > 0.01) {
+          renderPixelRatio = nextRatio;
+          renderer.setPixelRatio(renderPixelRatio);
+          renderer.setSize(mount.clientWidth, mount.clientHeight, false);
+        }
+        perfElapsed = 0;
+        perfFrames = 0;
+      }
 
       // Apply touch look
       if (lookDeltaRef.current.x !== 0 || lookDeltaRef.current.y !== 0) {
@@ -1493,9 +1519,8 @@ export default function Game() {
         zoomRef.current = 0;
       }
       camDistCur += (camDistTarget - camDistCur) * Math.min(1, dt * 10);
-      // Keep full dynamic shadows, but refresh their expensive atlas at 10 Hz.
-      // This is visually smooth while avoiding a second city render each frame.
-      shadowTick = (shadowTick + 1) % 6;
+      // Refresh the character/enemy shadow atlas at 15 Hz.
+      shadowTick = (shadowTick + 1) % 4;
       if (shadowTick === 0) {
         sun.target.position.copy(player.position);
         sun.position.set(player.position.x + 40, player.position.y + 60, player.position.z + 20);
