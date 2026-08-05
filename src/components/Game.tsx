@@ -863,8 +863,9 @@ export default function Game() {
       rayOrigin.set(pos.x, pos.y + CAPSULE_HEIGHT * 0.5, pos.z);
       const targets = nearbyMeshes(rayOrigin.x, rayOrigin.y, rayOrigin.z, CAPSULE_RADIUS + 1.5, CAPSULE_RADIUS + 1.5, wallTargets);
       if (!targets.length) return;
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2;
+      const wallSamples = isLowPower ? 4 : 8;
+      for (let i = 0; i < wallSamples; i++) {
+        const a = (i / wallSamples) * Math.PI * 2;
         rayDirection.set(Math.cos(a), 0, Math.sin(a));
         wallRay.set(rayOrigin, rayDirection);
         wallRay.far = CAPSULE_RADIUS + 0.05;
@@ -1311,6 +1312,9 @@ export default function Game() {
     let occlusionTick = 0;
     let occlusionDist = 0;
     let shadowTick = 0;
+    let physicsTick = 0;
+    let cachedGroundY: number | null = 0;
+    let vrmAccumulatedDt = 0;
     let wasPaused = false;
     let perfFrames = 0;
     let perfWindowStartedAt = performance.now();
@@ -1438,11 +1442,23 @@ export default function Game() {
       player.position.y += playerState.vel.y * dt;
 
       // Ground detection via downward raycast against the arena mesh.
-      const groundY = sampleGround(
-        player.position.x,
-        player.position.z,
-        player.position.y + CAPSULE_HEIGHT + 0.5,
-      );
+      physicsTick += 1;
+      // Detailed BVH ground queries remain continuous on desktop. On mobile,
+      // reuse the previous result for one frame while grounded; jumps/falls
+      // always query every frame so gravity and landing remain responsive.
+      const shouldQueryGround =
+        !isLowPower ||
+        !playerState.onGround ||
+        playerState.vel.y !== 0 ||
+        physicsTick % 2 === 0;
+      if (shouldQueryGround) {
+        cachedGroundY = sampleGround(
+          player.position.x,
+          player.position.z,
+          player.position.y + CAPSULE_HEIGHT + 0.5,
+        );
+      }
+      const groundY = cachedGroundY;
       if (groundY !== null) {
         // Snap to floor if we're at/under it, or step up for small ledges.
         const stepUpMax = prevY + STEP_HEIGHT;
@@ -1647,7 +1663,14 @@ export default function Game() {
           });
           if (mixer) mixer.update(dt);
         }
-        vrm.update(dt);
+        // Spring-bone simulation is CPU-heavy on detailed VRMs. A stable 30 Hz
+        // simulation on low-power devices looks fluid after rendering while
+        // halving that cost; desktop keeps the original per-frame update.
+        vrmAccumulatedDt += dt;
+        if (!isLowPower || physicsTick % 2 === 0) {
+          vrm.update(vrmAccumulatedDt);
+          vrmAccumulatedDt = 0;
+        }
       }
 
       renderer.render(scene, camera);
