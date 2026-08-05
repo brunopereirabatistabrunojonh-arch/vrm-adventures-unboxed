@@ -1312,8 +1312,8 @@ export default function Game() {
     let occlusionDist = 0;
     let shadowTick = 0;
     let wasPaused = false;
-    let perfElapsed = 0;
     let perfFrames = 0;
+    let perfWindowStartedAt = performance.now();
     const frameForward = new THREE.Vector3();
     const frameRight = new THREE.Vector3();
     const frameMove = new THREE.Vector3();
@@ -1345,20 +1345,22 @@ export default function Game() {
 
       // Adaptive internal resolution protects mobile devices from sustained
       // frame drops while leaving CSS/UI dimensions and game mechanics intact.
-      perfElapsed += dt;
       perfFrames += 1;
-      if (perfElapsed >= 2) {
+      const perfNow = performance.now();
+      const perfElapsed = (perfNow - perfWindowStartedAt) / 1000;
+      if (perfElapsed >= 1.5) {
         const measuredFps = perfFrames / perfElapsed;
         let nextRatio = renderPixelRatio;
-        if (measuredFps < 28) nextRatio = Math.max(minPixelRatio, renderPixelRatio - 0.15);
+        if (measuredFps < 20) nextRatio = Math.max(minPixelRatio, renderPixelRatio - 0.25);
+        else if (measuredFps < 30) nextRatio = Math.max(minPixelRatio, renderPixelRatio - 0.15);
         else if (measuredFps > 52) nextRatio = Math.min(maxPixelRatio, renderPixelRatio + 0.1);
         if (Math.abs(nextRatio - renderPixelRatio) > 0.01) {
           renderPixelRatio = nextRatio;
           renderer.setPixelRatio(renderPixelRatio);
           renderer.setSize(mount.clientWidth, mount.clientHeight, false);
         }
-        perfElapsed = 0;
         perfFrames = 0;
+        perfWindowStartedAt = perfNow;
       }
 
       // Apply touch look
