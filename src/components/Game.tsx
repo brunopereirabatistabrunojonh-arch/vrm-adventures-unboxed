@@ -613,13 +613,19 @@ export default function Game() {
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       powerPreference: "high-performance",
+      stencil: false,
+      precision: isLowPower ? "mediump" : "highp",
     });
-    const maxPixelRatio = isLowPower ? 1 : 1.5;
-    let renderPixelRatio = Math.min(window.devicePixelRatio, maxPixelRatio);
+    // Phones with DPR 2–4 were still drawing millions of pixels per frame.
+    // Keep the CSS canvas sharp while using a smaller internal framebuffer;
+    // adaptive resolution can then recover quality when the device has room.
+    const maxPixelRatio = isLowPower ? 0.9 : 1.5;
+    const minPixelRatio = isLowPower ? 0.5 : 0.65;
+    let renderPixelRatio = Math.min(window.devicePixelRatio, isLowPower ? 0.75 : maxPixelRatio);
     renderer.setPixelRatio(renderPixelRatio);
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = isLowPower ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
     // The city and its lights keep their full shadow quality, but the costly
     // shadow atlas is refreshed at a controlled cadence instead of for every
     // display frame. The regular colour pass still renders every frame.
@@ -638,7 +644,7 @@ export default function Game() {
     const sun = new THREE.DirectionalLight(0xffffff, 1.6);
     sun.position.set(40, 60, 20);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(isLowPower ? 1024 : 2048, isLowPower ? 1024 : 2048);
+    sun.shadow.mapSize.set(isLowPower ? 512 : 2048, isLowPower ? 512 : 2048);
     // Tight shadow frustum that follows the player: same visual quality around
     // the character, but the shadow pass culls almost the whole city each frame.
     sun.shadow.camera.left = -22;
@@ -707,10 +713,10 @@ export default function Game() {
             // every prop on every frame while preserving authored transforms.
             m.matrixAutoUpdate = false;
             const geometryWithBvh = m.geometry as THREE.BufferGeometry & {
-              computeBoundsTree?: (options?: { maxLeafTris?: number }) => void;
+              computeBoundsTree?: (options?: { targetLeafSize?: number }) => void;
             };
             if (!geometryWithBvh.boundsTree) {
-              geometryWithBvh.computeBoundsTree?.({ maxLeafTris: 20 });
+              geometryWithBvh.computeBoundsTree?.({ targetLeafSize: 20 });
             }
             // Materials, textures and UVs are left exactly as authored.
           }
@@ -817,15 +823,21 @@ export default function Game() {
     // Broadphase: cached world-space bounds per map mesh.
     const colliderMeshes: { mesh: THREE.Mesh; box: THREE.Box3 }[] = [];
     const queryBox = new THREE.Box3();
-    const nearbyMeshes = (x: number, y: number, z: number, r: number, ry = r) => {
+    const nearbyMeshes = (x: number, y: number, z: number, r: number, ry = r, out: THREE.Mesh[] = []) => {
+      out.length = 0;
       queryBox.min.set(x - r, y - ry, z - r);
       queryBox.max.set(x + r, y + ry, z + r);
-      const out: THREE.Mesh[] = [];
       for (const c of colliderMeshes) if (c.box.intersectsBox(queryBox)) out.push(c.mesh);
       return out;
     };
     const groundRay = new THREE.Raycaster();
     const wallRay = new THREE.Raycaster();
+    const groundTargets: THREE.Mesh[] = [];
+    const wallTargets: THREE.Mesh[] = [];
+    const cameraTargets: THREE.Mesh[] = [];
+    const rayOrigin = new THREE.Vector3();
+    const rayDirection = new THREE.Vector3();
+    const worldNormal = new THREE.Vector3();
     const CAPSULE_RADIUS = 0.35;
     const CAPSULE_HEIGHT = 2.6; // total; feet at 0, head at CAPSULE_HEIGHT
     const STEP_HEIGHT = 0.45;    // stairs/ramps we can walk up
@@ -834,11 +846,13 @@ export default function Game() {
     // walkable Y or null if nothing is below (out of arena).
     const sampleGround = (x: number, z: number, fromY: number): number | null => {
       if (!stageColliderRef.mesh) return 0;
-      groundRay.set(new THREE.Vector3(x, fromY, z), new THREE.Vector3(0, -1, 0));
+      rayOrigin.set(x, fromY, z);
+      rayDirection.set(0, -1, 0);
+      groundRay.set(rayOrigin, rayDirection);
       groundRay.far = fromY + 50;
       groundRay.firstHitOnly = true;
       // Narrow in XZ (only what's under our feet), tall in Y.
-      const targets = nearbyMeshes(x, fromY - 25, z, 1.5, 26);
+      const targets = nearbyMeshes(x, fromY - 25, z, 1.5, 26, groundTargets);
       const hits = groundRay.intersectObjects(targets, false);
       return hits.length > 0 ? hits[0].point.y : null;
     };
@@ -846,13 +860,14 @@ export default function Game() {
     // Push the position out of any wall it entered along 8 compass directions.
     const pushOutWalls = (pos: THREE.Vector3) => {
       if (!stageColliderRef.mesh) return;
-      const origin = new THREE.Vector3(pos.x, pos.y + CAPSULE_HEIGHT * 0.5, pos.z);
-      const targets = nearbyMeshes(origin.x, origin.y, origin.z, CAPSULE_RADIUS + 1.5);
+      rayOrigin.set(pos.x, pos.y + CAPSULE_HEIGHT * 0.5, pos.z);
+      const targets = nearbyMeshes(rayOrigin.x, rayOrigin.y, rayOrigin.z, CAPSULE_RADIUS + 1.5, CAPSULE_RADIUS + 1.5, wallTargets);
       if (!targets.length) return;
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2;
-        const dir = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
-        wallRay.set(origin, dir);
+      const wallSamples = isLowPower ? 4 : 8;
+      for (let i = 0; i < wallSamples; i++) {
+        const a = (i / wallSamples) * Math.PI * 2;
+        rayDirection.set(Math.cos(a), 0, Math.sin(a));
+        wallRay.set(rayOrigin, rayDirection);
         wallRay.far = CAPSULE_RADIUS + 0.05;
         wallRay.firstHitOnly = true;
         const hits = wallRay.intersectObjects(targets, false);
@@ -861,13 +876,13 @@ export default function Game() {
           // Ignore near-horizontal surfaces (that's the floor/ramp, not a wall).
           const n = h.face?.normal;
           if (n) {
-            const worldN = n.clone().transformDirection(h.object.matrixWorld).normalize();
-            if (Math.abs(worldN.y) > 0.6) continue;
+            worldNormal.copy(n).transformDirection(h.object.matrixWorld).normalize();
+            if (Math.abs(worldNormal.y) > 0.6) continue;
           }
           const overlap = CAPSULE_RADIUS - h.distance;
           if (overlap > 0) {
-            pos.x -= dir.x * overlap;
-            pos.z -= dir.z * overlap;
+            pos.x -= rayDirection.x * overlap;
+            pos.z -= rayDirection.z * overlap;
           }
         }
       }
@@ -1297,9 +1312,20 @@ export default function Game() {
     let occlusionTick = 0;
     let occlusionDist = 0;
     let shadowTick = 0;
+    let physicsTick = 0;
+    let cachedGroundY: number | null = 0;
+    let vrmAccumulatedDt = 0;
     let wasPaused = false;
-    let perfElapsed = 0;
     let perfFrames = 0;
+    let perfWindowStartedAt = performance.now();
+    const frameForward = new THREE.Vector3();
+    const frameRight = new THREE.Vector3();
+    const frameMove = new THREE.Vector3();
+    const enemyToPlayer = new THREE.Vector3();
+    const camOffset = new THREE.Vector3();
+    const camAnchor = new THREE.Vector3();
+    const targetCamPos = new THREE.Vector3();
+    const occlusionDirection = new THREE.Vector3();
 
     const animate = () => {
       raf = requestAnimationFrame(animate);
@@ -1323,20 +1349,22 @@ export default function Game() {
 
       // Adaptive internal resolution protects mobile devices from sustained
       // frame drops while leaving CSS/UI dimensions and game mechanics intact.
-      perfElapsed += dt;
       perfFrames += 1;
-      if (perfElapsed >= 2) {
+      const perfNow = performance.now();
+      const perfElapsed = (perfNow - perfWindowStartedAt) / 1000;
+      if (perfElapsed >= 1.5) {
         const measuredFps = perfFrames / perfElapsed;
         let nextRatio = renderPixelRatio;
-        if (measuredFps < 28) nextRatio = Math.max(0.65, renderPixelRatio - 0.15);
+        if (measuredFps < 20) nextRatio = Math.max(minPixelRatio, renderPixelRatio - 0.25);
+        else if (measuredFps < 30) nextRatio = Math.max(minPixelRatio, renderPixelRatio - 0.15);
         else if (measuredFps > 52) nextRatio = Math.min(maxPixelRatio, renderPixelRatio + 0.1);
         if (Math.abs(nextRatio - renderPixelRatio) > 0.01) {
           renderPixelRatio = nextRatio;
           renderer.setPixelRatio(renderPixelRatio);
           renderer.setSize(mount.clientWidth, mount.clientHeight, false);
         }
-        perfElapsed = 0;
         perfFrames = 0;
+        perfWindowStartedAt = perfNow;
       }
 
       // Apply touch look
@@ -1353,10 +1381,10 @@ export default function Game() {
       }
 
       // Camera-relative input
-      const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+      const forward = frameForward.set(Math.sin(yaw), 0, Math.cos(yaw));
       // Screen-right in this camera setup is yaw - 90deg (was inverted).
-      const right = new THREE.Vector3(Math.sin(yaw - Math.PI / 2), 0, Math.cos(yaw - Math.PI / 2));
-      const move = new THREE.Vector3();
+      const right = frameRight.set(Math.sin(yaw - Math.PI / 2), 0, Math.cos(yaw - Math.PI / 2));
+      const move = frameMove.set(0, 0, 0);
       if (!playerState.dead) {
         if (keys["KeyW"] || keys["ArrowUp"]) move.add(forward);
         if (keys["KeyS"] || keys["ArrowDown"]) move.sub(forward);
@@ -1366,8 +1394,8 @@ export default function Game() {
         const jx = moveRef.current.x;
         const jy = moveRef.current.y;
         if (jx * jx + jy * jy > 0.01) {
-          move.add(forward.clone().multiplyScalar(jy));
-          move.add(right.clone().multiplyScalar(jx));
+          move.x += forward.x * jy + right.x * jx;
+          move.z += forward.z * jy + right.z * jx;
         }
       }
       const running = keys["ShiftLeft"] || keys["ShiftRight"] || runRef.current;
@@ -1414,11 +1442,23 @@ export default function Game() {
       player.position.y += playerState.vel.y * dt;
 
       // Ground detection via downward raycast against the arena mesh.
-      const groundY = sampleGround(
-        player.position.x,
-        player.position.z,
-        player.position.y + CAPSULE_HEIGHT + 0.5,
-      );
+      physicsTick += 1;
+      // Detailed BVH ground queries remain continuous on desktop. On mobile,
+      // reuse the previous result for one frame while grounded; jumps/falls
+      // always query every frame so gravity and landing remain responsive.
+      const shouldQueryGround =
+        !isLowPower ||
+        !playerState.onGround ||
+        playerState.vel.y !== 0 ||
+        physicsTick % 2 === 0;
+      if (shouldQueryGround) {
+        cachedGroundY = sampleGround(
+          player.position.x,
+          player.position.z,
+          player.position.y + CAPSULE_HEIGHT + 0.5,
+        );
+      }
+      const groundY = cachedGroundY;
       if (groundY !== null) {
         // Snap to floor if we're at/under it, or step up for small ledges.
         const stepUpMax = prevY + STEP_HEIGHT;
@@ -1475,7 +1515,7 @@ export default function Game() {
             (en.mesh.material as THREE.MeshStandardMaterial).color.set(0xc83232);
         }
 
-        const to = new THREE.Vector3().subVectors(player.position, en.mesh.position);
+        const to = enemyToPlayer.subVectors(player.position, en.mesh.position);
         to.y = 0;
         const dist = to.length();
 
@@ -1539,7 +1579,8 @@ export default function Game() {
       }
       camDistCur += (camDistTarget - camDistCur) * Math.min(1, dt * 10);
       // Refresh the character/enemy shadow atlas at 15 Hz.
-      shadowTick = (shadowTick + 1) % 4;
+      const shadowInterval = isLowPower ? 12 : 4;
+      shadowTick = (shadowTick + 1) % shadowInterval;
       if (shadowTick === 0) {
         sun.target.position.copy(player.position);
         sun.position.set(player.position.x + 40, player.position.y + 60, player.position.z + 20);
@@ -1548,30 +1589,31 @@ export default function Game() {
       }
       const camDist = camDistCur;
       const camHeight = 3.2;
-      const camOffset = new THREE.Vector3(
+      camOffset.set(
         -Math.sin(yaw) * camDist,
         camHeight - pitch * camDist,
         -Math.cos(yaw) * camDist,
       );
-      const camAnchor = player.position.clone().add(new THREE.Vector3(0, 2.1, 0));
-      let targetCamPos = camAnchor.clone().add(camOffset);
+      camAnchor.copy(player.position);
+      camAnchor.y += 2.1;
+      targetCamPos.copy(camAnchor).add(camOffset);
       occlusionTick = (occlusionTick + 1) % 4;
       if (stageColliderRef.mesh && occlusionTick === 0) {
-        const dir = targetCamPos.clone().sub(camAnchor);
-        const len = dir.length();
-        dir.normalize();
-        wallRay.set(camAnchor, dir);
+        occlusionDirection.subVectors(targetCamPos, camAnchor);
+        const len = occlusionDirection.length();
+        occlusionDirection.normalize();
+        wallRay.set(camAnchor, occlusionDirection);
         wallRay.far = len;
         wallRay.firstHitOnly = true;
         const hits = wallRay.intersectObjects(
-          nearbyMeshes(camAnchor.x, camAnchor.y, camAnchor.z, len + 1),
+          nearbyMeshes(camAnchor.x, camAnchor.y, camAnchor.z, len + 1, len + 1, cameraTargets),
           false,
         );
         occlusionDist = hits.length > 0 ? Math.max(0.6, hits[0].distance - 0.2) : 0;
       }
       if (occlusionDist > 0) {
-        const dir = targetCamPos.clone().sub(camAnchor).normalize();
-        targetCamPos = camAnchor.clone().add(dir.multiplyScalar(occlusionDist));
+        occlusionDirection.subVectors(targetCamPos, camAnchor).normalize();
+        targetCamPos.copy(camAnchor).addScaledVector(occlusionDirection, occlusionDist);
       }
       camera.position.lerp(targetCamPos, Math.min(1, dt * 12));
       camera.lookAt(camAnchor);
@@ -1621,7 +1663,14 @@ export default function Game() {
           });
           if (mixer) mixer.update(dt);
         }
-        vrm.update(dt);
+        // Spring-bone simulation is CPU-heavy on detailed VRMs. A stable 30 Hz
+        // simulation on low-power devices looks fluid after rendering while
+        // halving that cost; desktop keeps the original per-frame update.
+        vrmAccumulatedDt += dt;
+        if (!isLowPower || physicsTick % 2 === 0) {
+          vrm.update(vrmAccumulatedDt);
+          vrmAccumulatedDt = 0;
+        }
       }
 
       renderer.render(scene, camera);
