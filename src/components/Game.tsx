@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { VRMLoaderPlugin, VRMUtils, type VRM } from "@pixiv/three-vrm";
+import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 import characterAsset from "@/assets/character.vrm.asset.json";
 import galaxiaAsset from "@/assets/galaxia.vrm.asset.json";
 import joggingAsset from "@/assets/Jogging.fbx.asset.json";
@@ -11,6 +12,16 @@ import kickAsset from "@/assets/Roundhouse_Kick.fbx.asset.json";
 import tokyoMapAsset from "@/assets/LittlestTokyo.glb.asset.json";
 import { loadMixamoAnimation } from "@/lib/loadMixamoAnimation";
 import BunnyMenu from "@/components/BunnyMenu";
+
+// Accelerate Three.js raycasts against the detailed city without changing its
+// visible geometry, materials, textures or UVs.
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
+const bvhGeometry = THREE.BufferGeometry.prototype as THREE.BufferGeometry & {
+  computeBoundsTree?: typeof computeBoundsTree;
+  disposeBoundsTree?: typeof disposeBoundsTree;
+};
+bvhGeometry.computeBoundsTree = computeBoundsTree;
+bvhGeometry.disposeBoundsTree = disposeBoundsTree;
 
 // ---- Fake VRM humanoid wrapper -------------------------------------------
 // Some character GLBs (e.g. VRoid exports converted to plain glTF) use the
@@ -603,10 +614,17 @@ export default function Game() {
       antialias: true,
       powerPreference: "high-performance",
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isLowPower ? 1.2 : 1.75));
+    const maxPixelRatio = isLowPower ? 1 : 1.5;
+    let renderPixelRatio = Math.min(window.devicePixelRatio, maxPixelRatio);
+    renderer.setPixelRatio(renderPixelRatio);
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // The city and its lights keep their full shadow quality, but the costly
+    // shadow atlas is refreshed at a controlled cadence instead of for every
+    // display frame. The regular colour pass still renders every frame.
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = true;
     // Neutral output so the GLB's authored textures/materials look exactly
     // as exported (no re-grading of the original art).
     renderer.toneMapping = THREE.NoToneMapping;
@@ -678,9 +696,22 @@ export default function Game() {
         stage.traverse((obj) => {
           const m = obj as THREE.Mesh;
           if ((m as any).isMesh) {
-            m.castShadow = true;
+            // The imported city is static and already carries its authored
+            // PBR shading. Let it receive character/enemy shadows, but don't
+            // render the whole city a second time into the moving shadow map.
+            // Textures, materials, UVs and visible geometry remain untouched.
+            m.castShadow = false;
             m.receiveShadow = true;
             m.frustumCulled = true;
+            // Littlest Tokyo is static. Avoid rebuilding local transforms for
+            // every prop on every frame while preserving authored transforms.
+            m.matrixAutoUpdate = false;
+            const geometryWithBvh = m.geometry as THREE.BufferGeometry & {
+              computeBoundsTree?: (options?: { maxLeafTris?: number }) => void;
+            };
+            if (!geometryWithBvh.boundsTree) {
+              geometryWithBvh.computeBoundsTree?.({ maxLeafTris: 20 });
+            }
             // Materials, textures and UVs are left exactly as authored.
           }
         });
@@ -805,6 +836,7 @@ export default function Game() {
       if (!stageColliderRef.mesh) return 0;
       groundRay.set(new THREE.Vector3(x, fromY, z), new THREE.Vector3(0, -1, 0));
       groundRay.far = fromY + 50;
+      groundRay.firstHitOnly = true;
       // Narrow in XZ (only what's under our feet), tall in Y.
       const targets = nearbyMeshes(x, fromY - 25, z, 1.5, 26);
       const hits = groundRay.intersectObjects(targets, false);
@@ -822,6 +854,7 @@ export default function Game() {
         const dir = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
         wallRay.set(origin, dir);
         wallRay.far = CAPSULE_RADIUS + 0.05;
+        wallRay.firstHitOnly = true;
         const hits = wallRay.intersectObjects(targets, false);
         if (hits.length > 0) {
           const h = hits[0];
@@ -1227,7 +1260,7 @@ export default function Game() {
       damageCooldown: 0,
     };
 
-    function resolveCollision(pos: THREE.Vector3, radius: number) {
+    function resolveCollision(pos: THREE.Vector3, radius: number, isMoving: boolean) {
       // Legacy arena-bounds clamp (used only as a safety net while the FBX
       // collider is still loading — arena bounds get updated after load).
       const lim = arenaBounds.half - radius - 0.6;
@@ -1245,7 +1278,9 @@ export default function Game() {
         }
       }
       // Push out of arena geometry (walls, props, pillars).
-      pushOutWalls(pos);
+      // Eight wall raycasts are only useful while the player is actually
+      // moving horizontally; skipping them while idle removes needless work.
+      if (isMoving) pushOutWalls(pos);
     }
 
     function doRespawn() {
@@ -1261,13 +1296,17 @@ export default function Game() {
     let raf = 0;
     let occlusionTick = 0;
     let occlusionDist = 0;
+    let shadowTick = 0;
+    let wasPaused = false;
+    let perfElapsed = 0;
+    let perfFrames = 0;
 
     const animate = () => {
       raf = requestAnimationFrame(animate);
       const dt = Math.min(clock.getDelta(), 0.05);
 
-      // Paused (menu open): keep rendering the scene but freeze gameplay so
-      // enemies can't kill the player behind the menu.
+      // Paused (menu open): render the frozen scene once. Repainting the full
+      // 3D city beneath a blurred opaque menu was the main source of menu lag.
       if (pausedRef.current) {
         moveRef.current.x = 0;
         moveRef.current.y = 0;
@@ -1276,8 +1315,28 @@ export default function Game() {
         kickRef.current = false;
         lookDeltaRef.current.x = 0;
         lookDeltaRef.current.y = 0;
-        renderer.render(scene, camera);
+        if (!wasPaused) renderer.render(scene, camera);
+        wasPaused = true;
         return;
+      }
+      wasPaused = false;
+
+      // Adaptive internal resolution protects mobile devices from sustained
+      // frame drops while leaving CSS/UI dimensions and game mechanics intact.
+      perfElapsed += dt;
+      perfFrames += 1;
+      if (perfElapsed >= 2) {
+        const measuredFps = perfFrames / perfElapsed;
+        let nextRatio = renderPixelRatio;
+        if (measuredFps < 28) nextRatio = Math.max(0.65, renderPixelRatio - 0.15);
+        else if (measuredFps > 52) nextRatio = Math.min(maxPixelRatio, renderPixelRatio + 0.1);
+        if (Math.abs(nextRatio - renderPixelRatio) > 0.01) {
+          renderPixelRatio = nextRatio;
+          renderer.setPixelRatio(renderPixelRatio);
+          renderer.setSize(mount.clientWidth, mount.clientHeight, false);
+        }
+        perfElapsed = 0;
+        perfFrames = 0;
       }
 
       // Apply touch look
@@ -1350,7 +1409,7 @@ export default function Game() {
       const prevY = player.position.y;
       player.position.x += playerState.vel.x * dt;
       player.position.z += playerState.vel.z * dt;
-      resolveCollision(player.position, CAPSULE_RADIUS);
+      resolveCollision(player.position, CAPSULE_RADIUS, move.lengthSq() > 0.001);
 
       player.position.y += playerState.vel.y * dt;
 
@@ -1479,9 +1538,14 @@ export default function Game() {
         zoomRef.current = 0;
       }
       camDistCur += (camDistTarget - camDistCur) * Math.min(1, dt * 10);
-      // Keep the (small) shadow frustum centred on the player.
-      sun.target.position.copy(player.position);
-      sun.position.set(player.position.x + 40, player.position.y + 60, player.position.z + 20);
+      // Refresh the character/enemy shadow atlas at 15 Hz.
+      shadowTick = (shadowTick + 1) % 4;
+      if (shadowTick === 0) {
+        sun.target.position.copy(player.position);
+        sun.position.set(player.position.x + 40, player.position.y + 60, player.position.z + 20);
+        sun.target.updateMatrixWorld();
+        renderer.shadowMap.needsUpdate = true;
+      }
       const camDist = camDistCur;
       const camHeight = 3.2;
       const camOffset = new THREE.Vector3(
@@ -1491,13 +1555,14 @@ export default function Game() {
       );
       const camAnchor = player.position.clone().add(new THREE.Vector3(0, 2.1, 0));
       let targetCamPos = camAnchor.clone().add(camOffset);
-      occlusionTick = (occlusionTick + 1) % 2;
+      occlusionTick = (occlusionTick + 1) % 4;
       if (stageColliderRef.mesh && occlusionTick === 0) {
         const dir = targetCamPos.clone().sub(camAnchor);
         const len = dir.length();
         dir.normalize();
         wallRay.set(camAnchor, dir);
         wallRay.far = len;
+        wallRay.firstHitOnly = true;
         const hits = wallRay.intersectObjects(
           nearbyMeshes(camAnchor.x, camAnchor.y, camAnchor.z, len + 1),
           false,
