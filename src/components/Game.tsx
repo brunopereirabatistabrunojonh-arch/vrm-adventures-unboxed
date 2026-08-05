@@ -1314,6 +1314,14 @@ export default function Game() {
     let wasPaused = false;
     let perfElapsed = 0;
     let perfFrames = 0;
+    const frameForward = new THREE.Vector3();
+    const frameRight = new THREE.Vector3();
+    const frameMove = new THREE.Vector3();
+    const enemyToPlayer = new THREE.Vector3();
+    const camOffset = new THREE.Vector3();
+    const camAnchor = new THREE.Vector3();
+    const targetCamPos = new THREE.Vector3();
+    const occlusionDirection = new THREE.Vector3();
 
     const animate = () => {
       raf = requestAnimationFrame(animate);
@@ -1342,7 +1350,7 @@ export default function Game() {
       if (perfElapsed >= 2) {
         const measuredFps = perfFrames / perfElapsed;
         let nextRatio = renderPixelRatio;
-        if (measuredFps < 28) nextRatio = Math.max(0.65, renderPixelRatio - 0.15);
+        if (measuredFps < 28) nextRatio = Math.max(minPixelRatio, renderPixelRatio - 0.15);
         else if (measuredFps > 52) nextRatio = Math.min(maxPixelRatio, renderPixelRatio + 0.1);
         if (Math.abs(nextRatio - renderPixelRatio) > 0.01) {
           renderPixelRatio = nextRatio;
@@ -1367,10 +1375,10 @@ export default function Game() {
       }
 
       // Camera-relative input
-      const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+      const forward = frameForward.set(Math.sin(yaw), 0, Math.cos(yaw));
       // Screen-right in this camera setup is yaw - 90deg (was inverted).
-      const right = new THREE.Vector3(Math.sin(yaw - Math.PI / 2), 0, Math.cos(yaw - Math.PI / 2));
-      const move = new THREE.Vector3();
+      const right = frameRight.set(Math.sin(yaw - Math.PI / 2), 0, Math.cos(yaw - Math.PI / 2));
+      const move = frameMove.set(0, 0, 0);
       if (!playerState.dead) {
         if (keys["KeyW"] || keys["ArrowUp"]) move.add(forward);
         if (keys["KeyS"] || keys["ArrowDown"]) move.sub(forward);
@@ -1380,8 +1388,8 @@ export default function Game() {
         const jx = moveRef.current.x;
         const jy = moveRef.current.y;
         if (jx * jx + jy * jy > 0.01) {
-          move.add(forward.clone().multiplyScalar(jy));
-          move.add(right.clone().multiplyScalar(jx));
+          move.x += forward.x * jy + right.x * jx;
+          move.z += forward.z * jy + right.z * jx;
         }
       }
       const running = keys["ShiftLeft"] || keys["ShiftRight"] || runRef.current;
@@ -1489,7 +1497,7 @@ export default function Game() {
             (en.mesh.material as THREE.MeshStandardMaterial).color.set(0xc83232);
         }
 
-        const to = new THREE.Vector3().subVectors(player.position, en.mesh.position);
+        const to = enemyToPlayer.subVectors(player.position, en.mesh.position);
         to.y = 0;
         const dist = to.length();
 
@@ -1553,7 +1561,8 @@ export default function Game() {
       }
       camDistCur += (camDistTarget - camDistCur) * Math.min(1, dt * 10);
       // Refresh the character/enemy shadow atlas at 15 Hz.
-      shadowTick = (shadowTick + 1) % 4;
+      const shadowInterval = isLowPower ? 12 : 4;
+      shadowTick = (shadowTick + 1) % shadowInterval;
       if (shadowTick === 0) {
         sun.target.position.copy(player.position);
         sun.position.set(player.position.x + 40, player.position.y + 60, player.position.z + 20);
@@ -1562,30 +1571,31 @@ export default function Game() {
       }
       const camDist = camDistCur;
       const camHeight = 3.2;
-      const camOffset = new THREE.Vector3(
+      camOffset.set(
         -Math.sin(yaw) * camDist,
         camHeight - pitch * camDist,
         -Math.cos(yaw) * camDist,
       );
-      const camAnchor = player.position.clone().add(new THREE.Vector3(0, 2.1, 0));
-      let targetCamPos = camAnchor.clone().add(camOffset);
+      camAnchor.copy(player.position);
+      camAnchor.y += 2.1;
+      targetCamPos.copy(camAnchor).add(camOffset);
       occlusionTick = (occlusionTick + 1) % 4;
       if (stageColliderRef.mesh && occlusionTick === 0) {
-        const dir = targetCamPos.clone().sub(camAnchor);
-        const len = dir.length();
-        dir.normalize();
-        wallRay.set(camAnchor, dir);
+        occlusionDirection.subVectors(targetCamPos, camAnchor);
+        const len = occlusionDirection.length();
+        occlusionDirection.normalize();
+        wallRay.set(camAnchor, occlusionDirection);
         wallRay.far = len;
         wallRay.firstHitOnly = true;
         const hits = wallRay.intersectObjects(
-          nearbyMeshes(camAnchor.x, camAnchor.y, camAnchor.z, len + 1),
+          nearbyMeshes(camAnchor.x, camAnchor.y, camAnchor.z, len + 1, len + 1, cameraTargets),
           false,
         );
         occlusionDist = hits.length > 0 ? Math.max(0.6, hits[0].distance - 0.2) : 0;
       }
       if (occlusionDist > 0) {
-        const dir = targetCamPos.clone().sub(camAnchor).normalize();
-        targetCamPos = camAnchor.clone().add(dir.multiplyScalar(occlusionDist));
+        occlusionDirection.subVectors(targetCamPos, camAnchor).normalize();
+        targetCamPos.copy(camAnchor).addScaledVector(occlusionDirection, occlusionDist);
       }
       camera.position.lerp(targetCamPos, Math.min(1, dt * 12));
       camera.lookAt(camAnchor);
