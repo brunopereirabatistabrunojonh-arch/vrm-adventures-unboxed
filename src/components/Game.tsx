@@ -611,7 +611,9 @@ export default function Game() {
       (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ||
         (navigator.hardwareConcurrency ?? 8) <= 4);
     const renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      // MSAA is one of the largest mobile GPU costs and is largely redundant
+      // once the canvas is rendered at a fractional DPR.
+      antialias: !isLowPower,
       powerPreference: "high-performance",
       stencil: false,
       precision: isLowPower ? "mediump" : "highp",
@@ -1318,6 +1320,9 @@ export default function Game() {
     let wasPaused = false;
     let perfFrames = 0;
     let perfWindowStartedAt = performance.now();
+    let slowWindows = 0;
+    let fastWindows = 0;
+    let reducedShadowLoad = false;
     const frameForward = new THREE.Vector3();
     const frameRight = new THREE.Vector3();
     const frameMove = new THREE.Vector3();
@@ -1362,6 +1367,19 @@ export default function Game() {
           renderPixelRatio = nextRatio;
           renderer.setPixelRatio(renderPixelRatio);
           renderer.setSize(mount.clientWidth, mount.clientHeight, false);
+        }
+        // Shadow-map refreshes create periodic long frames on weaker phones.
+        // Suspend only that extra pass after repeated slow windows and restore
+        // it automatically once the device has sustained headroom.
+        slowWindows = measuredFps < 27 ? slowWindows + 1 : 0;
+        fastWindows = measuredFps > 42 ? fastWindows + 1 : 0;
+        if (isLowPower && slowWindows >= 2 && !reducedShadowLoad) {
+          reducedShadowLoad = true;
+          renderer.shadowMap.enabled = false;
+        } else if (reducedShadowLoad && fastWindows >= 3) {
+          reducedShadowLoad = false;
+          renderer.shadowMap.enabled = true;
+          renderer.shadowMap.needsUpdate = true;
         }
         perfFrames = 0;
         perfWindowStartedAt = perfNow;
@@ -1437,7 +1455,11 @@ export default function Game() {
       const prevY = player.position.y;
       player.position.x += playerState.vel.x * dt;
       player.position.z += playerState.vel.z * dt;
-      resolveCollision(player.position, CAPSULE_RADIUS, move.lengthSq() > 0.001);
+      // Wall probes are substantially more expensive than movement itself.
+      // Four mobile probes every other frame still resolve well before the
+      // capsule can cross a wall at the maximum movement speed.
+      const shouldProbeWalls = move.lengthSq() > 0.001 && (!isLowPower || physicsTick % 2 === 0);
+      resolveCollision(player.position, CAPSULE_RADIUS, shouldProbeWalls);
 
       player.position.y += playerState.vel.y * dt;
 
@@ -1449,7 +1471,7 @@ export default function Game() {
       const shouldQueryGround =
         !isLowPower ||
         !playerState.onGround ||
-        playerState.vel.y !== 0 ||
+        Math.abs(playerState.vel.y) > 0.01 ||
         physicsTick % 2 === 0;
       if (shouldQueryGround) {
         cachedGroundY = sampleGround(
@@ -1579,13 +1601,13 @@ export default function Game() {
       }
       camDistCur += (camDistTarget - camDistCur) * Math.min(1, dt * 10);
       // Refresh the character/enemy shadow atlas at 15 Hz.
-      const shadowInterval = isLowPower ? 12 : 4;
+      const shadowInterval = isLowPower ? 18 : 4;
       shadowTick = (shadowTick + 1) % shadowInterval;
       if (shadowTick === 0) {
         sun.target.position.copy(player.position);
         sun.position.set(player.position.x + 40, player.position.y + 60, player.position.z + 20);
         sun.target.updateMatrixWorld();
-        renderer.shadowMap.needsUpdate = true;
+        if (!reducedShadowLoad) renderer.shadowMap.needsUpdate = true;
       }
       const camDist = camDistCur;
       const camHeight = 3.2;
