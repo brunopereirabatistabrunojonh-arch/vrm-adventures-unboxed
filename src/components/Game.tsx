@@ -730,9 +730,20 @@ export default function Game() {
             // PBR shading. Let it receive character/enemy shadows, but don't
             // render the whole city a second time into the moving shadow map.
             // Textures, materials, UVs and visible geometry remain untouched.
-            m.castShadow = false;
+            m.castShadow = true;
             m.receiveShadow = true;
             m.frustumCulled = true;
+            // Crisper textures at grazing angles.
+            const maxAniso = renderer.capabilities.getMaxAnisotropy();
+            const mats = Array.isArray(m.material) ? m.material : [m.material];
+            for (const mat of mats) {
+              const std = mat as THREE.MeshStandardMaterial;
+              if (std?.map) {
+                std.map.anisotropy = Math.min(8, maxAniso);
+                std.map.needsUpdate = true;
+              }
+            }
+
             // Littlest Tokyo is static. Avoid rebuilding local transforms for
             // every prop on every frame while preserving authored transforms.
             m.matrixAutoUpdate = false;
