@@ -639,32 +639,36 @@ export default function Game() {
     // Phones with DPR 2–4 were still drawing millions of pixels per frame.
     // Keep the CSS canvas sharp while using a smaller internal framebuffer;
     // adaptive resolution can then recover quality when the device has room.
-    const maxPixelRatio = isLowPower ? 0.9 : 1.5;
-    const minPixelRatio = isLowPower ? 0.5 : 0.65;
-    let renderPixelRatio = Math.min(window.devicePixelRatio, isLowPower ? 0.75 : maxPixelRatio);
+    const maxPixelRatio = isLowPower ? 1.15 : 2;
+    const minPixelRatio = isLowPower ? 0.6 : 0.75;
+    let renderPixelRatio = Math.min(window.devicePixelRatio, isLowPower ? 1 : maxPixelRatio);
     renderer.setPixelRatio(renderPixelRatio);
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = isLowPower ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     // The city and its lights keep their full shadow quality, but the costly
     // shadow atlas is refreshed at a controlled cadence instead of for every
     // display frame. The regular colour pass still renders every frame.
     renderer.shadowMap.autoUpdate = false;
     renderer.shadowMap.needsUpdate = true;
-    // Neutral output so the GLB's authored textures/materials look exactly
-    // as exported (no re-grading of the original art).
-    renderer.toneMapping = THREE.NoToneMapping;
+    // Filmic grading gives the diorama richer highlights and deeper contrast.
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.25;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     mount.appendChild(renderer.domElement);
 
-    // Lights
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x8899aa, 1.1);
+    // Lights — warm key sun, cool sky bounce, subtle rim for silhouette pop.
+    const hemi = new THREE.HemisphereLight(0xbcd9ff, 0x8a6f52, 1.0);
     scene.add(hemi);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+    const sun = new THREE.DirectionalLight(0xfff0d2, 2.6);
     sun.position.set(40, 60, 20);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(isLowPower ? 512 : 2048, isLowPower ? 512 : 2048);
+    sun.shadow.mapSize.set(isLowPower ? 1024 : 2048, isLowPower ? 1024 : 2048);
+    const rim = new THREE.DirectionalLight(0x9dc6ff, 0.9);
+    rim.position.set(-35, 25, -30);
+    scene.add(rim);
+
     // Tight shadow frustum that follows the player: same visual quality around
     // the character, but the shadow pass culls almost the whole city each frame.
     sun.shadow.camera.left = -22;
