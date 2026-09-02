@@ -990,6 +990,25 @@ export default function Game() {
         sceneRoot.traverse((o) => {
           o.castShadow = true;
           o.frustumCulled = false;
+          const mesh = o as THREE.Mesh;
+          const mats = Array.isArray(mesh.material)
+            ? mesh.material
+            : mesh.material
+              ? [mesh.material]
+              : [];
+          for (const m of mats) {
+            const mat = m as THREE.Material & {
+              isMToonMaterial?: boolean;
+              shadeColorFactor?: THREE.Color;
+              color?: THREE.Color;
+            };
+            // MToon: lift the shade colour toward the lit colour so hair and
+            // clothes don't crush to black in shadowed streets.
+            if (mat.isMToonMaterial && mat.shadeColorFactor && mat.color) {
+              mat.shadeColorFactor.lerp(mat.color, 0.55);
+              mat.shadeColorFactor.multiplyScalar(1.25);
+            }
+          }
         });
         // Auto-scale: prefer measuring the head bone height (robust for
         // skinned meshes where Box3.setFromObject can return inflated sizes
