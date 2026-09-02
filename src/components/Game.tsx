@@ -658,9 +658,9 @@ export default function Game() {
     mount.appendChild(renderer.domElement);
 
     // Lights — warm key sun, cool sky bounce, subtle rim for silhouette pop.
-    const hemi = new THREE.HemisphereLight(0xbcd9ff, 0x8a6f52, 1.0);
+    const hemi = new THREE.HemisphereLight(0xcfe4ff, 0x9a7f63, 1.35);
     scene.add(hemi);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.38));
     const sun = new THREE.DirectionalLight(0xfff0d2, 2.6);
     sun.position.set(40, 60, 20);
     sun.castShadow = true;
