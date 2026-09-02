@@ -677,10 +677,21 @@ export default function Game() {
     sun.shadow.camera.bottom = -22;
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = 200;
-    sun.shadow.bias = -0.0005;
-    sun.shadow.normalBias = 0.06;
+    sun.shadow.bias = -0.0004;
+    sun.shadow.normalBias = 0.09;
     scene.add(sun);
     scene.add(sun.target);
+
+    // "Beauty light" — soft warm fill that follows the player so the
+    // character never turns into a dark silhouette in shadowed streets.
+    // No shadow casting, short range: it only lifts the character and the
+    // ground immediately around her.
+    const charFill = new THREE.PointLight(0xfff4e0, 14, 9, 1.8);
+    charFill.castShadow = false;
+    scene.add(charFill);
+    const charRim = new THREE.PointLight(0xbfd9ff, 6, 7, 2.0);
+    charRim.castShadow = false;
+    scene.add(charRim);
 
     // Invisible safety floor (physics fallback at y=0)
     const ground = new THREE.Mesh(
