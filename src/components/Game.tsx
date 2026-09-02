@@ -1651,6 +1651,17 @@ export default function Game() {
         sun.target.position.copy(player.position);
         sun.position.set(player.position.x + 40, player.position.y + 60, player.position.z + 20);
         sun.target.updateMatrixWorld();
+        // Beauty lights hug the character: warm key in front/above, cool rim behind.
+        charFill.position.set(
+          player.position.x - Math.sin(player.rotation.y) * 1.6,
+          player.position.y + 2.6,
+          player.position.z - Math.cos(player.rotation.y) * 1.6
+        );
+        charRim.position.set(
+          player.position.x + Math.sin(player.rotation.y) * 1.8,
+          player.position.y + 2.2,
+          player.position.z + Math.cos(player.rotation.y) * 1.8
+        );
         if (!reducedShadowLoad) renderer.shadowMap.needsUpdate = true;
       }
       const camDist = camDistCur;
