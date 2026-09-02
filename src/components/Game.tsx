@@ -658,9 +658,9 @@ export default function Game() {
     mount.appendChild(renderer.domElement);
 
     // Lights — warm key sun, cool sky bounce, subtle rim for silhouette pop.
-    const hemi = new THREE.HemisphereLight(0xbcd9ff, 0x8a6f52, 1.0);
+    const hemi = new THREE.HemisphereLight(0xcfe4ff, 0x9a7f63, 1.35);
     scene.add(hemi);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.38));
     const sun = new THREE.DirectionalLight(0xfff0d2, 2.6);
     sun.position.set(40, 60, 20);
     sun.castShadow = true;
@@ -677,10 +677,21 @@ export default function Game() {
     sun.shadow.camera.bottom = -22;
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = 200;
-    sun.shadow.bias = -0.0005;
-    sun.shadow.normalBias = 0.06;
+    sun.shadow.bias = -0.0004;
+    sun.shadow.normalBias = 0.09;
     scene.add(sun);
     scene.add(sun.target);
+
+    // "Beauty light" — soft warm fill that follows the player so the
+    // character never turns into a dark silhouette in shadowed streets.
+    // No shadow casting, short range: it only lifts the character and the
+    // ground immediately around her.
+    const charFill = new THREE.PointLight(0xfff4e0, 14, 9, 1.8);
+    charFill.castShadow = false;
+    scene.add(charFill);
+    const charRim = new THREE.PointLight(0xbfd9ff, 6, 7, 2.0);
+    charRim.castShadow = false;
+    scene.add(charRim);
 
     // Invisible safety floor (physics fallback at y=0)
     const ground = new THREE.Mesh(
@@ -979,6 +990,25 @@ export default function Game() {
         sceneRoot.traverse((o) => {
           o.castShadow = true;
           o.frustumCulled = false;
+          const mesh = o as THREE.Mesh;
+          const mats = Array.isArray(mesh.material)
+            ? mesh.material
+            : mesh.material
+              ? [mesh.material]
+              : [];
+          for (const m of mats) {
+            const mat = m as THREE.Material & {
+              isMToonMaterial?: boolean;
+              shadeColorFactor?: THREE.Color;
+              color?: THREE.Color;
+            };
+            // MToon: lift the shade colour toward the lit colour so hair and
+            // clothes don't crush to black in shadowed streets.
+            if (mat.isMToonMaterial && mat.shadeColorFactor && mat.color) {
+              mat.shadeColorFactor.lerp(mat.color, 0.55);
+              mat.shadeColorFactor.multiplyScalar(1.25);
+            }
+          }
         });
         // Auto-scale: prefer measuring the head bone height (robust for
         // skinned meshes where Box3.setFromObject can return inflated sizes
@@ -1640,6 +1670,17 @@ export default function Game() {
         sun.target.position.copy(player.position);
         sun.position.set(player.position.x + 40, player.position.y + 60, player.position.z + 20);
         sun.target.updateMatrixWorld();
+        // Beauty lights hug the character: warm key in front/above, cool rim behind.
+        charFill.position.set(
+          player.position.x - Math.sin(player.rotation.y) * 1.6,
+          player.position.y + 2.6,
+          player.position.z - Math.cos(player.rotation.y) * 1.6
+        );
+        charRim.position.set(
+          player.position.x + Math.sin(player.rotation.y) * 1.8,
+          player.position.y + 2.2,
+          player.position.z + Math.cos(player.rotation.y) * 1.8
+        );
         if (!reducedShadowLoad) renderer.shadowMap.needsUpdate = true;
       }
       const camDist = camDistCur;
