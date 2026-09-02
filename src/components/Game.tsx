@@ -596,8 +596,26 @@ export default function Game() {
   useEffect(() => {
     const mount = mountRef.current!;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87ceeb);
-    scene.fog = new THREE.Fog(0x87ceeb, 60, 180);
+    // Painted sky gradient instead of a flat blue clear colour.
+    const skyCanvas = document.createElement("canvas");
+    skyCanvas.width = 8;
+    skyCanvas.height = 256;
+    const skyCtx = skyCanvas.getContext("2d")!;
+    const skyGrad = skyCtx.createLinearGradient(0, 0, 0, 256);
+    skyGrad.addColorStop(0, "#1b3f8f");
+    skyGrad.addColorStop(0.45, "#5aa9e6");
+    skyGrad.addColorStop(0.78, "#bfe3f7");
+    skyGrad.addColorStop(1, "#ffd9a8");
+    skyCtx.fillStyle = skyGrad;
+    skyCtx.fillRect(0, 0, 8, 256);
+    const skyTex = new THREE.CanvasTexture(skyCanvas);
+    skyTex.colorSpace = THREE.SRGBColorSpace;
+    skyTex.mapping = THREE.EquirectangularReflectionMapping;
+    scene.background = skyTex;
+    scene.environment = skyTex;
+    scene.environmentIntensity = 0.55;
+    scene.fog = new THREE.Fog(0xa9cfe8, 70, 210);
+
 
     const camera = new THREE.PerspectiveCamera(
       60,
