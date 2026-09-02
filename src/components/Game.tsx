@@ -596,8 +596,26 @@ export default function Game() {
   useEffect(() => {
     const mount = mountRef.current!;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87ceeb);
-    scene.fog = new THREE.Fog(0x87ceeb, 60, 180);
+    // Painted sky gradient instead of a flat blue clear colour.
+    const skyCanvas = document.createElement("canvas");
+    skyCanvas.width = 8;
+    skyCanvas.height = 256;
+    const skyCtx = skyCanvas.getContext("2d")!;
+    const skyGrad = skyCtx.createLinearGradient(0, 0, 0, 256);
+    skyGrad.addColorStop(0, "#1b3f8f");
+    skyGrad.addColorStop(0.45, "#5aa9e6");
+    skyGrad.addColorStop(0.78, "#bfe3f7");
+    skyGrad.addColorStop(1, "#ffd9a8");
+    skyCtx.fillStyle = skyGrad;
+    skyCtx.fillRect(0, 0, 8, 256);
+    const skyTex = new THREE.CanvasTexture(skyCanvas);
+    skyTex.colorSpace = THREE.SRGBColorSpace;
+    skyTex.mapping = THREE.EquirectangularReflectionMapping;
+    scene.background = skyTex;
+    scene.environment = skyTex;
+    scene.environmentIntensity = 0.55;
+    scene.fog = new THREE.Fog(0xa9cfe8, 70, 210);
+
 
     const camera = new THREE.PerspectiveCamera(
       60,
@@ -621,32 +639,36 @@ export default function Game() {
     // Phones with DPR 2–4 were still drawing millions of pixels per frame.
     // Keep the CSS canvas sharp while using a smaller internal framebuffer;
     // adaptive resolution can then recover quality when the device has room.
-    const maxPixelRatio = isLowPower ? 0.9 : 1.5;
-    const minPixelRatio = isLowPower ? 0.5 : 0.65;
-    let renderPixelRatio = Math.min(window.devicePixelRatio, isLowPower ? 0.75 : maxPixelRatio);
+    const maxPixelRatio = isLowPower ? 1.15 : 2;
+    const minPixelRatio = isLowPower ? 0.6 : 0.75;
+    let renderPixelRatio = Math.min(window.devicePixelRatio, isLowPower ? 1 : maxPixelRatio);
     renderer.setPixelRatio(renderPixelRatio);
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = isLowPower ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     // The city and its lights keep their full shadow quality, but the costly
     // shadow atlas is refreshed at a controlled cadence instead of for every
     // display frame. The regular colour pass still renders every frame.
     renderer.shadowMap.autoUpdate = false;
     renderer.shadowMap.needsUpdate = true;
-    // Neutral output so the GLB's authored textures/materials look exactly
-    // as exported (no re-grading of the original art).
-    renderer.toneMapping = THREE.NoToneMapping;
+    // Filmic grading gives the diorama richer highlights and deeper contrast.
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.25;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     mount.appendChild(renderer.domElement);
 
-    // Lights
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x8899aa, 1.1);
+    // Lights — warm key sun, cool sky bounce, subtle rim for silhouette pop.
+    const hemi = new THREE.HemisphereLight(0xbcd9ff, 0x8a6f52, 1.0);
     scene.add(hemi);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+    const sun = new THREE.DirectionalLight(0xfff0d2, 2.6);
     sun.position.set(40, 60, 20);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(isLowPower ? 512 : 2048, isLowPower ? 512 : 2048);
+    sun.shadow.mapSize.set(isLowPower ? 1024 : 2048, isLowPower ? 1024 : 2048);
+    const rim = new THREE.DirectionalLight(0x9dc6ff, 0.9);
+    rim.position.set(-35, 25, -30);
+    scene.add(rim);
+
     // Tight shadow frustum that follows the player: same visual quality around
     // the character, but the shadow pass culls almost the whole city each frame.
     sun.shadow.camera.left = -22;
@@ -708,9 +730,20 @@ export default function Game() {
             // PBR shading. Let it receive character/enemy shadows, but don't
             // render the whole city a second time into the moving shadow map.
             // Textures, materials, UVs and visible geometry remain untouched.
-            m.castShadow = false;
+            m.castShadow = true;
             m.receiveShadow = true;
             m.frustumCulled = true;
+            // Crisper textures at grazing angles.
+            const maxAniso = renderer.capabilities.getMaxAnisotropy();
+            const mats = Array.isArray(m.material) ? m.material : [m.material];
+            for (const mat of mats) {
+              const std = mat as THREE.MeshStandardMaterial;
+              if (std?.map) {
+                std.map.anisotropy = Math.min(8, maxAniso);
+                std.map.needsUpdate = true;
+              }
+            }
+
             // Littlest Tokyo is static. Avoid rebuilding local transforms for
             // every prop on every frame while preserving authored transforms.
             m.matrixAutoUpdate = false;
