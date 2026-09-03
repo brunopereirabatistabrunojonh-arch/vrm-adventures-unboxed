@@ -972,6 +972,7 @@ export default function Game() {
               isMToonMaterial?: boolean;
               shadeColorFactor?: THREE.Color;
               color?: THREE.Color;
+              alphaMap?: THREE.Texture | null;
             };
             // MToon: lift the shade colour toward the lit colour so hair and
             // clothes don't crush to black in shadowed streets.
