@@ -242,25 +242,10 @@ function updateCharacterAnimation(
   const idle = Math.max(0, 1 - walk);
 
   // When the FBX run clip drives the rig, skip every body bone the mixer owns
-  // so we don't fight it. Hair / ears / vertical bounce still run.
+  // so we don't fight it. Secondary bones are owned exclusively by the VRM
+  // spring-bone manager; writing them here as well made hair/ears oscillate
+  // between two poses every frame and looked like flickering textures.
   if (runActive) {
-    animState.t += dt * 2.4;
-    const t2 = animState.t;
-    const { hair, ears } = getSecondaryBones(vrm);
-    const swayAmp = 0.22;
-    const sideAmp = 0.14;
-    hair.forEach((h, i) => {
-      const b = h.userData._baseRot;
-      const phase = i * 0.25;
-      h.rotation.x = b.x + Math.sin(t2 * 1.6 + phase) * swayAmp;
-      h.rotation.z = b.z + Math.sin(t2 * 1.1 + phase) * sideAmp;
-    });
-    ears.forEach((e, i) => {
-      const b = e.userData._baseRot;
-      const sign = i % 2 === 0 ? 1 : -1;
-      e.rotation.x = b.x + Math.sin(t2 * 1.8) * 0.18;
-      e.rotation.z = b.z + sign * Math.sin(t2 * 1.3) * 0.1;
-    });
     return;
   }
 
@@ -453,27 +438,6 @@ function updateCharacterAnimation(
     vrm.scene.position.y = base + vertical;
   }
 
-  // --- Secondary motion: hair + bunny ears (procedural follow) ---
-  // Real VRM spring bones (if present) animate via vrm.update(); this layer
-  // adds a guaranteed gentle sway even when no spring rig is authored.
-  const { hair, ears } = getSecondaryBones(vrm);
-  const swayAmp = 0.05 + walkOnly * 0.08 + sprint * 0.2;
-  const hairWave = Math.sin(t * 0.9 - 0.4) * swayAmp + vertical * 0.8;
-  const hairSide = Math.sin(legPhase * 0.5 - 0.6) * (0.04 + walkOnly * 0.05 + sprint * 0.12);
-  hair.forEach((h, i) => {
-    const b = h.userData._baseRot;
-    const phase = i * 0.25;
-    h.rotation.x = b.x + Math.sin(t * 0.9 + phase) * swayAmp * 0.65 + hairWave * 0.45;
-    h.rotation.z = b.z + hairSide + Math.sin(t * 0.7 + phase) * (0.02 + sprint * 0.04);
-  });
-  const earWobble = Math.sin(t * 1.4) * (0.03 + walkOnly * 0.04 + sprint * 0.12) + vertical * (0.6 + sprint * 0.7);
-  ears.forEach((e, i) => {
-    const b = e.userData._baseRot;
-    const sign = i % 2 === 0 ? 1 : -1;
-    e.rotation.x = b.x + earWobble;
-    e.rotation.z = b.z + sign * Math.sin(t * 1.1) * (0.02 + sprint * 0.08);
-  });
-
   if (dead) {
     // Collapse: tilt forward
     setBone(vrm, "hips", 1.4, 0, 0, 0.15);
@@ -634,7 +598,9 @@ export default function Game() {
       antialias: !isLowPower,
       powerPreference: "high-performance",
       stencil: false,
-      precision: isLowPower ? "mediump" : "highp",
+      // MToon skinning and toon-light calculations visibly break into noisy
+      // patches on some mobile GPUs when fragment precision is reduced.
+      precision: "highp",
     });
     // Phones with DPR 2–4 were still drawing millions of pixels per frame.
     // Keep the CSS canvas sharp while using a smaller internal framebuffer;
@@ -686,10 +652,10 @@ export default function Game() {
     // character never turns into a dark silhouette in shadowed streets.
     // No shadow casting, short range: it only lifts the character and the
     // ground immediately around her.
-    const charFill = new THREE.PointLight(0xfff4e0, 14, 9, 1.8);
+    const charFill = new THREE.PointLight(0xfff4e0, 5, 9, 1.8);
     charFill.castShadow = false;
     scene.add(charFill);
-    const charRim = new THREE.PointLight(0xbfd9ff, 6, 7, 2.0);
+    const charRim = new THREE.PointLight(0xbfd9ff, 2.5, 7, 2.0);
     charRim.castShadow = false;
     scene.add(charRim);
 
@@ -988,9 +954,14 @@ export default function Game() {
           console.warn("[Game] VRMUtils failed", e);
         }
         sceneRoot.traverse((o) => {
-          o.castShadow = true;
-          o.frustumCulled = false;
           const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          // Animated MToon meshes self-shadow poorly against a shadow atlas
+          // refreshed below the display frame rate. The stale projection was
+          // the moving black speckle pattern visible across skin and clothes.
+          mesh.castShadow = false;
+          mesh.receiveShadow = false;
+          o.frustumCulled = false;
           const mats = Array.isArray(mesh.material)
             ? mesh.material
             : mesh.material
@@ -1001,6 +972,7 @@ export default function Game() {
               isMToonMaterial?: boolean;
               shadeColorFactor?: THREE.Color;
               color?: THREE.Color;
+              alphaMap?: THREE.Texture | null;
             };
             // MToon: lift the shade colour toward the lit colour so hair and
             // clothes don't crush to black in shadowed streets.
@@ -1008,6 +980,17 @@ export default function Game() {
               mat.shadeColorFactor.lerp(mat.color, 0.55);
               mat.shadeColorFactor.multiplyScalar(1.25);
             }
+            // Stabilize cutout hair/eyelashes. Fully opaque materials should
+            // stay in the opaque pass; alpha-cutout materials keep depth writes
+            // so overlapping VRM layers don't reorder as the camera moves.
+            if (mat.transparent && mat.opacity >= 0.999 && !mat.alphaMap) {
+              mat.transparent = false;
+              mat.depthWrite = true;
+            } else if (mat.alphaTest > 0) {
+              mat.depthWrite = true;
+              mat.alphaTest = Math.max(0.35, mat.alphaTest);
+            }
+            mat.needsUpdate = true;
           }
         });
         // Auto-scale: prefer measuring the head bone height (robust for
@@ -1663,6 +1646,19 @@ export default function Game() {
         zoomRef.current = 0;
       }
       camDistCur += (camDistTarget - camDistCur) * Math.min(1, dt * 10);
+      // Character lighting must follow every rendered frame. It previously
+      // moved only with the throttled shadow refresh (3–15 Hz), making the
+      // illumination visibly jump across the animated model.
+      charFill.position.set(
+        player.position.x - Math.sin(player.rotation.y) * 1.6,
+        player.position.y + 2.6,
+        player.position.z - Math.cos(player.rotation.y) * 1.6
+      );
+      charRim.position.set(
+        player.position.x + Math.sin(player.rotation.y) * 1.8,
+        player.position.y + 2.2,
+        player.position.z + Math.cos(player.rotation.y) * 1.8
+      );
       // Refresh the character/enemy shadow atlas at 15 Hz.
       const shadowInterval = isLowPower ? 18 : 4;
       shadowTick = (shadowTick + 1) % shadowInterval;
@@ -1670,17 +1666,6 @@ export default function Game() {
         sun.target.position.copy(player.position);
         sun.position.set(player.position.x + 40, player.position.y + 60, player.position.z + 20);
         sun.target.updateMatrixWorld();
-        // Beauty lights hug the character: warm key in front/above, cool rim behind.
-        charFill.position.set(
-          player.position.x - Math.sin(player.rotation.y) * 1.6,
-          player.position.y + 2.6,
-          player.position.z - Math.cos(player.rotation.y) * 1.6
-        );
-        charRim.position.set(
-          player.position.x + Math.sin(player.rotation.y) * 1.8,
-          player.position.y + 2.2,
-          player.position.z + Math.cos(player.rotation.y) * 1.8
-        );
         if (!reducedShadowLoad) renderer.shadowMap.needsUpdate = true;
       }
       const camDist = camDistCur;
