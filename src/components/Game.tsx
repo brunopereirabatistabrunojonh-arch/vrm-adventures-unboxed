@@ -108,10 +108,9 @@ const WORLD_SIZE = 200;
 const PLAYER_MAX_HP = 100;
 const ENEMY_MAX_HP = 40;
 const ATTACK_DAMAGE = 25;
-const ATTACK_RANGE = 3.2;
-const ENEMY_DAMAGE = 8;
-const AGRO_RANGE = 8;
-const MELEE_RANGE = 1.6;
+const ATTACK_RANGE = 5;
+...
+const MELEE_RANGE = 2.6;
 
 // ---- Procedural VRM animation ----
 const animState = {
@@ -216,7 +215,7 @@ function updateCharacterAnimation(
 
   // Locomotion blending — responsive enough for sprint, still soft on idle↔move.
   const walkThreshold = 0.4;
-  const runThreshold = 6.5;
+  const runThreshold = 10;
   const isMoving = speed > walkThreshold;
   const targetWalk = isMoving ? 1 : 0;
   const targetRun = speed > runThreshold ? Math.min(1, (speed - runThreshold) / 2.5) : 0;
@@ -869,9 +868,9 @@ export default function Game() {
     const rayOrigin = new THREE.Vector3();
     const rayDirection = new THREE.Vector3();
     const worldNormal = new THREE.Vector3();
-    const CAPSULE_RADIUS = 0.35;
-    const CAPSULE_HEIGHT = 2.6; // total; feet at 0, head at CAPSULE_HEIGHT
-    const STEP_HEIGHT = 0.45;    // stairs/ramps we can walk up
+    const CAPSULE_RADIUS = 0.6;
+    const CAPSULE_HEIGHT = 4.5; // total; feet at 0, head at CAPSULE_HEIGHT
+    const STEP_HEIGHT = 0.8;    // stairs/ramps we can walk up
 
     // Sample the floor height beneath a world-space position. Returns the
     // walkable Y or null if nothing is below (out of arena).
@@ -1020,7 +1019,7 @@ export default function Game() {
         sceneRoot.scale.setScalar(1);
         sceneRoot.position.set(0, 0, 0);
         sceneRoot.updateMatrixWorld(true);
-        const targetHeight = 2.6;
+        const targetHeight = 4.5;
         // Only trust the head bone measurement for real VRM rigs. On fake
         // rigs it can sit far from the visual top of the mesh, producing a
         // gigantic scale. Use the bounding box in that case.
@@ -1196,8 +1195,8 @@ export default function Game() {
     // Mouse look (pointer lock)
     let yaw = 0;
     let pitch = -0.2;
-    let camDistCur = 5;
-    let camDistTarget = 5;
+    let camDistCur = 9;
+    let camDistTarget = 9;
     const onMouseMove = (e: MouseEvent) => {
       if (document.pointerLockElement !== renderer.domElement) return;
       yaw -= e.movementX * 0.0025;
@@ -1483,7 +1482,7 @@ export default function Game() {
         }
       }
       const running = keys["ShiftLeft"] || keys["ShiftRight"] || runRef.current;
-      const speed = running ? 9 : 5;
+      const speed = running ? 15 : 8;
       if (move.lengthSq() > 0) {
         move.normalize().multiplyScalar(speed);
         // Rotate player to face move direction
@@ -1500,7 +1499,7 @@ export default function Game() {
 
       // Jump
       if ((keys["Space"] || jumpRef.current) && playerState.onGround && !playerState.dead) {
-        playerState.vel.y = 8;
+        playerState.vel.y = 12;
         playerState.onGround = false;
       }
       jumpRef.current = false;
@@ -1515,7 +1514,7 @@ export default function Game() {
       if (kickTimer > 0) kickTimer -= dt;
       if (kickCooldown > 0) kickCooldown -= dt;
       // Gravity
-      playerState.vel.y -= 22 * dt;
+      playerState.vel.y -= 32 * dt;
 
       // Integrate XZ then resolve walls, then integrate Y with ground snap.
       const prevY = player.position.y;
@@ -1662,7 +1661,7 @@ export default function Game() {
       // camera never clips through arena geometry.
       // Zoom (wheel / pinch), clamped
       if (zoomRef.current !== 0) {
-        camDistTarget = Math.max(1.0, Math.min(16, camDistTarget + zoomRef.current));
+        camDistTarget = Math.max(2.0, Math.min(26, camDistTarget + zoomRef.current));
         zoomRef.current = 0;
       }
       camDistCur += (camDistTarget - camDistCur) * Math.min(1, dt * 10);
@@ -1671,7 +1670,7 @@ export default function Game() {
       // illumination visibly jump across the animated model.
       charFill.position.set(
         player.position.x - Math.sin(player.rotation.y) * 1.6,
-        player.position.y + 2.6,
+        player.position.y + CAPSULE_HEIGHT * 0.9,
         player.position.z - Math.cos(player.rotation.y) * 1.6
       );
       charRim.position.set(
@@ -1690,7 +1689,7 @@ export default function Game() {
       }
 
       const camDist = camDistCur;
-      const camHeight = 3.2;
+      const camHeight = 5.5;
       camOffset.set(
         -Math.sin(yaw) * camDist,
         camHeight - pitch * camDist,
