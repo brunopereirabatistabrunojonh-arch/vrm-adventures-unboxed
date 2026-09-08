@@ -136,11 +136,21 @@ export default function BunnyMenu({ open, currentKills, onPlay }: Props) {
   }, [currentKills, hydrated]);
 
   // Persist settings
+  const lastQualityRef = useRef<BunnySettings["quality"] | null>(null);
   useEffect(() => {
     if (!hydrated) return;
     writeJSON(LS.settings, settings);
     (window as unknown as { __bunnySettings?: BunnySettings }).__bunnySettings = settings;
+    // Graphics quality is applied when the 3D scene is created, so switching it
+    // reloads the game once.
+    if (lastQualityRef.current === null) {
+      lastQualityRef.current = settings.quality;
+    } else if (lastQualityRef.current !== settings.quality) {
+      lastQualityRef.current = settings.quality;
+      window.setTimeout(() => window.location.reload(), 150);
+    }
   }, [settings, hydrated]);
+
 
   if (!open) return null;
 

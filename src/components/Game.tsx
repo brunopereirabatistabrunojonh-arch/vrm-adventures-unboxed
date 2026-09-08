@@ -588,30 +588,43 @@ export default function Game() {
       500
     );
 
-    const isLowPower =
+    const isMobileDevice =
       typeof navigator !== "undefined" &&
       (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ||
         (navigator.hardwareConcurrency ?? 8) <= 4);
+    // Player-chosen graphics quality (menu). "high" is the default and lets
+    // even mid phones render at native-ish sharpness.
+    let qualityPref: "low" | "medium" | "high" =
+      (window as unknown as { __bunnySettings?: { quality?: "low" | "medium" | "high" } })
+        .__bunnySettings?.quality ?? "high";
+    try {
+      const raw = localStorage.getItem("bunny.settings");
+      const q = raw ? (JSON.parse(raw) as { quality?: "low" | "medium" | "high" }).quality : null;
+      if (q === "low" || q === "medium" || q === "high") qualityPref = q;
+    } catch {
+      /* noop */
+    }
+    const isLowPower = isMobileDevice && qualityPref === "low";
+
     const renderer = new THREE.WebGLRenderer({
-      // MSAA is one of the largest mobile GPU costs and is largely redundant
-      // once the canvas is rendered at a fractional DPR.
-      antialias: !isLowPower,
+      // MSAA is expensive on mobile; enable it whenever quality allows.
+      antialias: !isMobileDevice || qualityPref === "high",
       powerPreference: "high-performance",
       stencil: false,
       // MToon skinning and toon-light calculations visibly break into noisy
       // patches on some mobile GPUs when fragment precision is reduced.
       precision: "highp",
     });
-    // Phones with DPR 2–4 were still drawing millions of pixels per frame.
-    // Keep the CSS canvas sharp while using a smaller internal framebuffer;
-    // adaptive resolution can then recover quality when the device has room.
-    const maxPixelRatio = isLowPower ? 1.15 : 2;
-    const minPixelRatio = isLowPower ? 0.6 : 0.75;
-    let renderPixelRatio = Math.min(window.devicePixelRatio, isLowPower ? 1 : maxPixelRatio);
+    // Resolution floor/ceiling. The previous mobile floor (0.6) produced the
+    // heavy stair-stepping reported on mid-range Android phones.
+    const qualityCap = qualityPref === "low" ? 1.0 : qualityPref === "medium" ? 1.35 : 1.75;
+    const maxPixelRatio = isMobileDevice ? qualityCap : 2;
+    const minPixelRatio = isMobileDevice ? Math.min(0.9, qualityCap) : 1;
+    let renderPixelRatio = Math.min(window.devicePixelRatio, maxPixelRatio);
     renderer.setPixelRatio(renderPixelRatio);
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = isLowPower ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
     // The city and its lights keep their full shadow quality, but the costly
     // shadow atlas is refreshed at a controlled cadence instead of for every
     // display frame. The regular colour pass still renders every frame.
@@ -619,19 +632,25 @@ export default function Game() {
     renderer.shadowMap.needsUpdate = true;
     // Filmic grading gives the diorama richer highlights and deeper contrast.
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.25;
+    // Lower exposure: 1.25 combined with the sun + character fill lights was
+    // clipping skin and clothes to pure white on the VRM's toon materials.
+    renderer.toneMappingExposure = 1.0;
+
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     mount.appendChild(renderer.domElement);
 
     // Lights — warm key sun, cool sky bounce, subtle rim for silhouette pop.
-    const hemi = new THREE.HemisphereLight(0xcfe4ff, 0x9a7f63, 1.35);
+    // Intensities are tuned together with exposure 1.0 so toon materials keep
+    // gradation instead of clipping to white.
+    const hemi = new THREE.HemisphereLight(0xcfe4ff, 0x9a7f63, 1.0);
     scene.add(hemi);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.38));
-    const sun = new THREE.DirectionalLight(0xfff0d2, 2.6);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+    const sun = new THREE.DirectionalLight(0xfff0d2, 1.9);
     sun.position.set(40, 60, 20);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(isLowPower ? 1024 : 2048, isLowPower ? 1024 : 2048);
-    const rim = new THREE.DirectionalLight(0x9dc6ff, 0.9);
+    const shadowMapSize = isLowPower ? 1024 : isMobileDevice ? 1536 : 2048;
+    sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
+    const rim = new THREE.DirectionalLight(0x9dc6ff, 0.7);
     rim.position.set(-35, 25, -30);
     scene.add(rim);
 
@@ -650,14 +669,14 @@ export default function Game() {
 
     // "Beauty light" — soft warm fill that follows the player so the
     // character never turns into a dark silhouette in shadowed streets.
-    // No shadow casting, short range: it only lifts the character and the
-    // ground immediately around her.
-    const charFill = new THREE.PointLight(0xfff4e0, 5, 9, 1.8);
+    // Kept gentle: strong point lights blew the toon shading out to flat white.
+    const charFill = new THREE.PointLight(0xfff4e0, 1.6, 8, 2.0);
     charFill.castShadow = false;
     scene.add(charFill);
-    const charRim = new THREE.PointLight(0xbfd9ff, 2.5, 7, 2.0);
+    const charRim = new THREE.PointLight(0xbfd9ff, 0.9, 6.5, 2.0);
     charRim.castShadow = false;
     scene.add(charRim);
+
 
     // Invisible safety floor (physics fallback at y=0)
     const ground = new THREE.Mesh(
@@ -875,7 +894,7 @@ export default function Game() {
       rayOrigin.set(pos.x, pos.y + CAPSULE_HEIGHT * 0.5, pos.z);
       const targets = nearbyMeshes(rayOrigin.x, rayOrigin.y, rayOrigin.z, CAPSULE_RADIUS + 1.5, CAPSULE_RADIUS + 1.5, wallTargets);
       if (!targets.length) return;
-      const wallSamples = isLowPower ? 4 : 8;
+      const wallSamples = isMobileDevice ? 4 : 8;
       for (let i = 0; i < wallSamples; i++) {
         const a = (i / wallSamples) * Math.PI * 2;
         rayDirection.set(Math.cos(a), 0, Math.sin(a));
@@ -977,8 +996,10 @@ export default function Game() {
             // MToon: lift the shade colour toward the lit colour so hair and
             // clothes don't crush to black in shadowed streets.
             if (mat.isMToonMaterial && mat.shadeColorFactor && mat.color) {
-              mat.shadeColorFactor.lerp(mat.color, 0.55);
-              mat.shadeColorFactor.multiplyScalar(1.25);
+              mat.shadeColorFactor.lerp(mat.color, 0.45);
+              // No extra gain here: multiplying pushed light skin/clothes past
+              // white once tone mapping was applied.
+
             }
             // Stabilize cutout hair/eyelashes. Fully opaque materials should
             // stay in the opaque pass; alpha-cutout materials keep depth writes
@@ -1406,27 +1427,26 @@ export default function Game() {
       if (perfElapsed >= 1.5) {
         const measuredFps = perfFrames / perfElapsed;
         let nextRatio = renderPixelRatio;
-        if (measuredFps < 20) nextRatio = Math.max(minPixelRatio, renderPixelRatio - 0.25);
-        else if (measuredFps < 30) nextRatio = Math.max(minPixelRatio, renderPixelRatio - 0.15);
-        else if (measuredFps > 52) nextRatio = Math.min(maxPixelRatio, renderPixelRatio + 0.1);
+        // Gentler steps so sharpness doesn't visibly pump during play.
+        if (measuredFps < 22) nextRatio = Math.max(minPixelRatio, renderPixelRatio - 0.1);
+        else if (measuredFps > 50) nextRatio = Math.min(maxPixelRatio, renderPixelRatio + 0.08);
         if (Math.abs(nextRatio - renderPixelRatio) > 0.01) {
           renderPixelRatio = nextRatio;
           renderer.setPixelRatio(renderPixelRatio);
           renderer.setSize(mount.clientWidth, mount.clientHeight, false);
         }
         // Shadow-map refreshes create periodic long frames on weaker phones.
-        // Suspend only that extra pass after repeated slow windows and restore
-        // it automatically once the device has sustained headroom.
+        // Instead of switching shadows off (which changed the whole look), we
+        // only slow the atlas refresh cadence down and restore it later.
         slowWindows = measuredFps < 27 ? slowWindows + 1 : 0;
         fastWindows = measuredFps > 42 ? fastWindows + 1 : 0;
-        if (isLowPower && slowWindows >= 2 && !reducedShadowLoad) {
+        if (isMobileDevice && slowWindows >= 2 && !reducedShadowLoad) {
           reducedShadowLoad = true;
-          renderer.shadowMap.enabled = false;
         } else if (reducedShadowLoad && fastWindows >= 3) {
           reducedShadowLoad = false;
-          renderer.shadowMap.enabled = true;
           renderer.shadowMap.needsUpdate = true;
         }
+
         perfFrames = 0;
         perfWindowStartedAt = perfNow;
       }
@@ -1504,7 +1524,7 @@ export default function Game() {
       // Wall probes are substantially more expensive than movement itself.
       // Four mobile probes every other frame still resolve well before the
       // capsule can cross a wall at the maximum movement speed.
-      const shouldProbeWalls = move.lengthSq() > 0.001 && (!isLowPower || physicsTick % 2 === 0);
+      const shouldProbeWalls = move.lengthSq() > 0.001 && (!isMobileDevice || physicsTick % 2 === 0);
       resolveCollision(player.position, CAPSULE_RADIUS, shouldProbeWalls);
 
       player.position.y += playerState.vel.y * dt;
@@ -1515,7 +1535,7 @@ export default function Game() {
       // reuse the previous result for one frame while grounded; jumps/falls
       // always query every frame so gravity and landing remain responsive.
       const shouldQueryGround =
-        !isLowPower ||
+        !isMobileDevice ||
         !playerState.onGround ||
         Math.abs(playerState.vel.y) > 0.01 ||
         physicsTick % 2 === 0;
@@ -1659,15 +1679,16 @@ export default function Game() {
         player.position.y + 2.2,
         player.position.z + Math.cos(player.rotation.y) * 1.8
       );
-      // Refresh the character/enemy shadow atlas at 15 Hz.
-      const shadowInterval = isLowPower ? 18 : 4;
+      // Refresh the character/enemy shadow atlas at a controlled cadence.
+      const shadowInterval = reducedShadowLoad ? 24 : isMobileDevice ? 10 : 4;
       shadowTick = (shadowTick + 1) % shadowInterval;
       if (shadowTick === 0) {
         sun.target.position.copy(player.position);
         sun.position.set(player.position.x + 40, player.position.y + 60, player.position.z + 20);
         sun.target.updateMatrixWorld();
-        if (!reducedShadowLoad) renderer.shadowMap.needsUpdate = true;
+        renderer.shadowMap.needsUpdate = true;
       }
+
       const camDist = camDistCur;
       const camHeight = 3.2;
       camOffset.set(
@@ -1748,7 +1769,7 @@ export default function Game() {
         // simulation on low-power devices looks fluid after rendering while
         // halving that cost; desktop keeps the original per-frame update.
         vrmAccumulatedDt += dt;
-        if (!isLowPower || physicsTick % 2 === 0) {
+        if (!isMobileDevice || physicsTick % 2 === 0) {
           vrm.update(vrmAccumulatedDt);
           vrmAccumulatedDt = 0;
         }
