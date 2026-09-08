@@ -869,9 +869,9 @@ export default function Game() {
     const rayOrigin = new THREE.Vector3();
     const rayDirection = new THREE.Vector3();
     const worldNormal = new THREE.Vector3();
-    const CAPSULE_RADIUS = 0.35;
-    const CAPSULE_HEIGHT = 2.6; // total; feet at 0, head at CAPSULE_HEIGHT
-    const STEP_HEIGHT = 0.45;    // stairs/ramps we can walk up
+    const CAPSULE_RADIUS = 0.6;
+    const CAPSULE_HEIGHT = 4.5; // total; feet at 0, head at CAPSULE_HEIGHT
+    const STEP_HEIGHT = 0.8;    // stairs/ramps we can walk up
 
     // Sample the floor height beneath a world-space position. Returns the
     // walkable Y or null if nothing is below (out of arena).
@@ -1020,7 +1020,7 @@ export default function Game() {
         sceneRoot.scale.setScalar(1);
         sceneRoot.position.set(0, 0, 0);
         sceneRoot.updateMatrixWorld(true);
-        const targetHeight = 2.6;
+        const targetHeight = 4.5;
         // Only trust the head bone measurement for real VRM rigs. On fake
         // rigs it can sit far from the visual top of the mesh, producing a
         // gigantic scale. Use the bounding box in that case.
@@ -1196,8 +1196,8 @@ export default function Game() {
     // Mouse look (pointer lock)
     let yaw = 0;
     let pitch = -0.2;
-    let camDistCur = 5;
-    let camDistTarget = 5;
+    let camDistCur = 9;
+    let camDistTarget = 9;
     const onMouseMove = (e: MouseEvent) => {
       if (document.pointerLockElement !== renderer.domElement) return;
       yaw -= e.movementX * 0.0025;
