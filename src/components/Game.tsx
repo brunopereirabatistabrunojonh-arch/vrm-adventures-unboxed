@@ -594,10 +594,18 @@ export default function Game() {
         (navigator.hardwareConcurrency ?? 8) <= 4);
     // Player-chosen graphics quality (menu). "high" is the default and lets
     // even mid phones render at native-ish sharpness.
-    const qualityPref =
+    let qualityPref: "low" | "medium" | "high" =
       (window as unknown as { __bunnySettings?: { quality?: "low" | "medium" | "high" } })
         .__bunnySettings?.quality ?? "high";
+    try {
+      const raw = localStorage.getItem("bunny.settings");
+      const q = raw ? (JSON.parse(raw) as { quality?: "low" | "medium" | "high" }).quality : null;
+      if (q === "low" || q === "medium" || q === "high") qualityPref = q;
+    } catch {
+      /* noop */
+    }
     const isLowPower = isMobileDevice && qualityPref === "low";
+
     const renderer = new THREE.WebGLRenderer({
       // MSAA is expensive on mobile; enable it whenever quality allows.
       antialias: !isMobileDevice || qualityPref === "high",
