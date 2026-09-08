@@ -632,14 +632,17 @@ export default function Game() {
     mount.appendChild(renderer.domElement);
 
     // Lights — warm key sun, cool sky bounce, subtle rim for silhouette pop.
-    const hemi = new THREE.HemisphereLight(0xcfe4ff, 0x9a7f63, 1.35);
+    // Intensities are tuned together with exposure 1.0 so toon materials keep
+    // gradation instead of clipping to white.
+    const hemi = new THREE.HemisphereLight(0xcfe4ff, 0x9a7f63, 1.0);
     scene.add(hemi);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.38));
-    const sun = new THREE.DirectionalLight(0xfff0d2, 2.6);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+    const sun = new THREE.DirectionalLight(0xfff0d2, 1.9);
     sun.position.set(40, 60, 20);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(isLowPower ? 1024 : 2048, isLowPower ? 1024 : 2048);
-    const rim = new THREE.DirectionalLight(0x9dc6ff, 0.9);
+    const shadowMapSize = isLowPower ? 1024 : isMobileDevice ? 1536 : 2048;
+    sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
+    const rim = new THREE.DirectionalLight(0x9dc6ff, 0.7);
     rim.position.set(-35, 25, -30);
     scene.add(rim);
 
@@ -658,14 +661,14 @@ export default function Game() {
 
     // "Beauty light" — soft warm fill that follows the player so the
     // character never turns into a dark silhouette in shadowed streets.
-    // No shadow casting, short range: it only lifts the character and the
-    // ground immediately around her.
-    const charFill = new THREE.PointLight(0xfff4e0, 5, 9, 1.8);
+    // Kept gentle: strong point lights blew the toon shading out to flat white.
+    const charFill = new THREE.PointLight(0xfff4e0, 1.6, 8, 2.0);
     charFill.castShadow = false;
     scene.add(charFill);
-    const charRim = new THREE.PointLight(0xbfd9ff, 2.5, 7, 2.0);
+    const charRim = new THREE.PointLight(0xbfd9ff, 0.9, 6.5, 2.0);
     charRim.castShadow = false;
     scene.add(charRim);
+
 
     // Invisible safety floor (physics fallback at y=0)
     const ground = new THREE.Mesh(
