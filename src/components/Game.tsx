@@ -108,10 +108,9 @@ const WORLD_SIZE = 200;
 const PLAYER_MAX_HP = 100;
 const ENEMY_MAX_HP = 40;
 const ATTACK_DAMAGE = 25;
-const ATTACK_RANGE = 3.2;
-const ENEMY_DAMAGE = 8;
-const AGRO_RANGE = 8;
-const MELEE_RANGE = 1.6;
+const ATTACK_RANGE = 5;
+...
+const MELEE_RANGE = 2.6;
 
 // ---- Procedural VRM animation ----
 const animState = {
@@ -216,7 +215,7 @@ function updateCharacterAnimation(
 
   // Locomotion blending — responsive enough for sprint, still soft on idle↔move.
   const walkThreshold = 0.4;
-  const runThreshold = 6.5;
+  const runThreshold = 10;
   const isMoving = speed > walkThreshold;
   const targetWalk = isMoving ? 1 : 0;
   const targetRun = speed > runThreshold ? Math.min(1, (speed - runThreshold) / 2.5) : 0;
@@ -1483,7 +1482,7 @@ export default function Game() {
         }
       }
       const running = keys["ShiftLeft"] || keys["ShiftRight"] || runRef.current;
-      const speed = running ? 9 : 5;
+      const speed = running ? 15 : 8;
       if (move.lengthSq() > 0) {
         move.normalize().multiplyScalar(speed);
         // Rotate player to face move direction
@@ -1500,7 +1499,7 @@ export default function Game() {
 
       // Jump
       if ((keys["Space"] || jumpRef.current) && playerState.onGround && !playerState.dead) {
-        playerState.vel.y = 8;
+        playerState.vel.y = 12;
         playerState.onGround = false;
       }
       jumpRef.current = false;
@@ -1515,7 +1514,7 @@ export default function Game() {
       if (kickTimer > 0) kickTimer -= dt;
       if (kickCooldown > 0) kickCooldown -= dt;
       // Gravity
-      playerState.vel.y -= 22 * dt;
+      playerState.vel.y -= 32 * dt;
 
       // Integrate XZ then resolve walls, then integrate Y with ground snap.
       const prevY = player.position.y;
