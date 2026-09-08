@@ -1669,15 +1669,16 @@ export default function Game() {
         player.position.y + 2.2,
         player.position.z + Math.cos(player.rotation.y) * 1.8
       );
-      // Refresh the character/enemy shadow atlas at 15 Hz.
-      const shadowInterval = isLowPower ? 18 : 4;
+      // Refresh the character/enemy shadow atlas at a controlled cadence.
+      const shadowInterval = reducedShadowLoad ? 24 : isMobileDevice ? 10 : 4;
       shadowTick = (shadowTick + 1) % shadowInterval;
       if (shadowTick === 0) {
         sun.target.position.copy(player.position);
         sun.position.set(player.position.x + 40, player.position.y + 60, player.position.z + 20);
         sun.target.updateMatrixWorld();
-        if (!reducedShadowLoad) renderer.shadowMap.needsUpdate = true;
+        renderer.shadowMap.needsUpdate = true;
       }
+
       const camDist = camDistCur;
       const camHeight = 3.2;
       camOffset.set(
