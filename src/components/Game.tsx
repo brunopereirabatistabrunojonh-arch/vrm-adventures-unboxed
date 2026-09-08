@@ -886,7 +886,7 @@ export default function Game() {
       rayOrigin.set(pos.x, pos.y + CAPSULE_HEIGHT * 0.5, pos.z);
       const targets = nearbyMeshes(rayOrigin.x, rayOrigin.y, rayOrigin.z, CAPSULE_RADIUS + 1.5, CAPSULE_RADIUS + 1.5, wallTargets);
       if (!targets.length) return;
-      const wallSamples = isLowPower ? 4 : 8;
+      const wallSamples = isMobileDevice ? 4 : 8;
       for (let i = 0; i < wallSamples; i++) {
         const a = (i / wallSamples) * Math.PI * 2;
         rayDirection.set(Math.cos(a), 0, Math.sin(a));
@@ -1516,7 +1516,7 @@ export default function Game() {
       // Wall probes are substantially more expensive than movement itself.
       // Four mobile probes every other frame still resolve well before the
       // capsule can cross a wall at the maximum movement speed.
-      const shouldProbeWalls = move.lengthSq() > 0.001 && (!isLowPower || physicsTick % 2 === 0);
+      const shouldProbeWalls = move.lengthSq() > 0.001 && (!isMobileDevice || physicsTick % 2 === 0);
       resolveCollision(player.position, CAPSULE_RADIUS, shouldProbeWalls);
 
       player.position.y += playerState.vel.y * dt;
@@ -1527,7 +1527,7 @@ export default function Game() {
       // reuse the previous result for one frame while grounded; jumps/falls
       // always query every frame so gravity and landing remain responsive.
       const shouldQueryGround =
-        !isLowPower ||
+        !isMobileDevice ||
         !playerState.onGround ||
         Math.abs(playerState.vel.y) > 0.01 ||
         physicsTick % 2 === 0;
@@ -1761,7 +1761,7 @@ export default function Game() {
         // simulation on low-power devices looks fluid after rendering while
         // halving that cost; desktop keeps the original per-frame update.
         vrmAccumulatedDt += dt;
-        if (!isLowPower || physicsTick % 2 === 0) {
+        if (!isMobileDevice || physicsTick % 2 === 0) {
           vrm.update(vrmAccumulatedDt);
           vrmAccumulatedDt = 0;
         }
