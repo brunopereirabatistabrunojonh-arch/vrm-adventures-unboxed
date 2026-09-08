@@ -1662,7 +1662,7 @@ export default function Game() {
       // camera never clips through arena geometry.
       // Zoom (wheel / pinch), clamped
       if (zoomRef.current !== 0) {
-        camDistTarget = Math.max(1.0, Math.min(16, camDistTarget + zoomRef.current));
+        camDistTarget = Math.max(2.0, Math.min(26, camDistTarget + zoomRef.current));
         zoomRef.current = 0;
       }
       camDistCur += (camDistTarget - camDistCur) * Math.min(1, dt * 10);
@@ -1671,7 +1671,7 @@ export default function Game() {
       // illumination visibly jump across the animated model.
       charFill.position.set(
         player.position.x - Math.sin(player.rotation.y) * 1.6,
-        player.position.y + 2.6,
+        player.position.y + CAPSULE_HEIGHT * 0.9,
         player.position.z - Math.cos(player.rotation.y) * 1.6
       );
       charRim.position.set(
@@ -1690,7 +1690,7 @@ export default function Game() {
       }
 
       const camDist = camDistCur;
-      const camHeight = 3.2;
+      const camHeight = 5.5;
       camOffset.set(
         -Math.sin(yaw) * camDist,
         camHeight - pitch * camDist,
