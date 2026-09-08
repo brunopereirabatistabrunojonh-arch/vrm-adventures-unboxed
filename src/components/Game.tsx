@@ -1417,27 +1417,26 @@ export default function Game() {
       if (perfElapsed >= 1.5) {
         const measuredFps = perfFrames / perfElapsed;
         let nextRatio = renderPixelRatio;
-        if (measuredFps < 20) nextRatio = Math.max(minPixelRatio, renderPixelRatio - 0.25);
-        else if (measuredFps < 30) nextRatio = Math.max(minPixelRatio, renderPixelRatio - 0.15);
-        else if (measuredFps > 52) nextRatio = Math.min(maxPixelRatio, renderPixelRatio + 0.1);
+        // Gentler steps so sharpness doesn't visibly pump during play.
+        if (measuredFps < 22) nextRatio = Math.max(minPixelRatio, renderPixelRatio - 0.1);
+        else if (measuredFps > 50) nextRatio = Math.min(maxPixelRatio, renderPixelRatio + 0.08);
         if (Math.abs(nextRatio - renderPixelRatio) > 0.01) {
           renderPixelRatio = nextRatio;
           renderer.setPixelRatio(renderPixelRatio);
           renderer.setSize(mount.clientWidth, mount.clientHeight, false);
         }
         // Shadow-map refreshes create periodic long frames on weaker phones.
-        // Suspend only that extra pass after repeated slow windows and restore
-        // it automatically once the device has sustained headroom.
+        // Instead of switching shadows off (which changed the whole look), we
+        // only slow the atlas refresh cadence down and restore it later.
         slowWindows = measuredFps < 27 ? slowWindows + 1 : 0;
         fastWindows = measuredFps > 42 ? fastWindows + 1 : 0;
-        if (isLowPower && slowWindows >= 2 && !reducedShadowLoad) {
+        if (isMobileDevice && slowWindows >= 2 && !reducedShadowLoad) {
           reducedShadowLoad = true;
-          renderer.shadowMap.enabled = false;
         } else if (reducedShadowLoad && fastWindows >= 3) {
           reducedShadowLoad = false;
-          renderer.shadowMap.enabled = true;
           renderer.shadowMap.needsUpdate = true;
         }
+
         perfFrames = 0;
         perfWindowStartedAt = perfNow;
       }
