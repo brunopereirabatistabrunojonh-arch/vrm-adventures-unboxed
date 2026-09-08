@@ -988,8 +988,10 @@ export default function Game() {
             // MToon: lift the shade colour toward the lit colour so hair and
             // clothes don't crush to black in shadowed streets.
             if (mat.isMToonMaterial && mat.shadeColorFactor && mat.color) {
-              mat.shadeColorFactor.lerp(mat.color, 0.55);
-              mat.shadeColorFactor.multiplyScalar(1.25);
+              mat.shadeColorFactor.lerp(mat.color, 0.45);
+              // No extra gain here: multiplying pushed light skin/clothes past
+              // white once tone mapping was applied.
+
             }
             // Stabilize cutout hair/eyelashes. Fully opaque materials should
             // stay in the opaque pass; alpha-cutout materials keep depth writes
