@@ -588,30 +588,35 @@ export default function Game() {
       500
     );
 
-    const isLowPower =
+    const isMobileDevice =
       typeof navigator !== "undefined" &&
       (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ||
         (navigator.hardwareConcurrency ?? 8) <= 4);
+    // Player-chosen graphics quality (menu). "high" is the default and lets
+    // even mid phones render at native-ish sharpness.
+    const qualityPref =
+      (window as unknown as { __bunnySettings?: { quality?: "low" | "medium" | "high" } })
+        .__bunnySettings?.quality ?? "high";
+    const isLowPower = isMobileDevice && qualityPref === "low";
     const renderer = new THREE.WebGLRenderer({
-      // MSAA is one of the largest mobile GPU costs and is largely redundant
-      // once the canvas is rendered at a fractional DPR.
-      antialias: !isLowPower,
+      // MSAA is expensive on mobile; enable it whenever quality allows.
+      antialias: !isMobileDevice || qualityPref === "high",
       powerPreference: "high-performance",
       stencil: false,
       // MToon skinning and toon-light calculations visibly break into noisy
       // patches on some mobile GPUs when fragment precision is reduced.
       precision: "highp",
     });
-    // Phones with DPR 2–4 were still drawing millions of pixels per frame.
-    // Keep the CSS canvas sharp while using a smaller internal framebuffer;
-    // adaptive resolution can then recover quality when the device has room.
-    const maxPixelRatio = isLowPower ? 1.15 : 2;
-    const minPixelRatio = isLowPower ? 0.6 : 0.75;
-    let renderPixelRatio = Math.min(window.devicePixelRatio, isLowPower ? 1 : maxPixelRatio);
+    // Resolution floor/ceiling. The previous mobile floor (0.6) produced the
+    // heavy stair-stepping reported on mid-range Android phones.
+    const qualityCap = qualityPref === "low" ? 1.0 : qualityPref === "medium" ? 1.35 : 1.75;
+    const maxPixelRatio = isMobileDevice ? qualityCap : 2;
+    const minPixelRatio = isMobileDevice ? Math.min(0.9, qualityCap) : 1;
+    let renderPixelRatio = Math.min(window.devicePixelRatio, maxPixelRatio);
     renderer.setPixelRatio(renderPixelRatio);
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = isLowPower ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
     // The city and its lights keep their full shadow quality, but the costly
     // shadow atlas is refreshed at a controlled cadence instead of for every
     // display frame. The regular colour pass still renders every frame.
@@ -619,7 +624,10 @@ export default function Game() {
     renderer.shadowMap.needsUpdate = true;
     // Filmic grading gives the diorama richer highlights and deeper contrast.
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.25;
+    // Lower exposure: 1.25 combined with the sun + character fill lights was
+    // clipping skin and clothes to pure white on the VRM's toon materials.
+    renderer.toneMappingExposure = 1.0;
+
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     mount.appendChild(renderer.domElement);
 
