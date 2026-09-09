@@ -1722,6 +1722,9 @@ export default function Game() {
         renderer.shadowMap.needsUpdate = true;
       }
 
+      // Baked map animations (train, props).
+      if (mapMixer) mapMixer.update(dt);
+
       const camDist = camDistCur;
       const camHeight = 5.5;
       camOffset.set(
