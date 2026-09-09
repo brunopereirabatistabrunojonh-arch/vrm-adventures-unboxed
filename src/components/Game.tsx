@@ -696,6 +696,8 @@ export default function Game() {
     const arenaBounds = { half: WORLD_SIZE / 2 };
     // Spawn resolved after the map loads (used by initial placement + respawn).
     const spawnPoint = new THREE.Vector3(0, 5, 0);
+    // Mixer for the map's own baked animations (train, props, etc).
+    let mapMixer: THREE.AnimationMixer | null = null;
 
     {
       // The GLB ships with embedded PBR textures — materials are used as-is.
@@ -718,6 +720,23 @@ export default function Game() {
         stage.position.x -= center.x;
         stage.position.z -= center.z;
         stage.position.y -= bbox2.min.y; // floor of bbox sits on y=0 baseline
+
+        // Names of nodes driven by the map's baked animation clips — those
+        // must keep their matrices live (and stay out of the static BVH).
+        const animatedNames = new Set<string>();
+        for (const clip of gltf.animations ?? []) {
+          for (const track of clip.tracks) {
+            animatedNames.add(track.name.split(".")[0]);
+          }
+        }
+        const isAnimated = (o: THREE.Object3D) => {
+          let n: THREE.Object3D | null = o;
+          while (n) {
+            if (animatedNames.has(n.name)) return true;
+            n = n.parent === stage.parent ? null : n.parent;
+          }
+          return false;
+        };
 
         stage.traverse((obj) => {
           const m = obj as THREE.Mesh;
@@ -742,12 +761,15 @@ export default function Game() {
 
             // Littlest Tokyo is static. Avoid rebuilding local transforms for
             // every prop on every frame while preserving authored transforms.
-            m.matrixAutoUpdate = false;
-            const geometryWithBvh = m.geometry as THREE.BufferGeometry & {
-              computeBoundsTree?: (options?: { targetLeafSize?: number }) => void;
-            };
-            if (!geometryWithBvh.boundsTree) {
-              geometryWithBvh.computeBoundsTree?.({ targetLeafSize: 20 });
+            const animatedMesh = isAnimated(m) || (m as any).isSkinnedMesh;
+            m.matrixAutoUpdate = animatedMesh;
+            if (!animatedMesh) {
+              const geometryWithBvh = m.geometry as THREE.BufferGeometry & {
+                computeBoundsTree?: (options?: { targetLeafSize?: number }) => void;
+              };
+              if (!geometryWithBvh.boundsTree) {
+                geometryWithBvh.computeBoundsTree?.({ targetLeafSize: 20 });
+              }
             }
             // Materials, textures and UVs are left exactly as authored.
           }
@@ -755,6 +777,17 @@ export default function Game() {
 
         scene.add(stage);
         stage.updateMatrixWorld(true);
+
+        // Play the map's baked animations (train, signs, props).
+        if (gltf.animations && gltf.animations.length) {
+          mapMixer = new THREE.AnimationMixer(stage);
+          for (const clip of gltf.animations) {
+            const action = mapMixer.clipAction(clip);
+            action.setLoop(THREE.LoopRepeat, Infinity);
+            action.play();
+          }
+        }
+
 
         // Update walk clamp to the visible map footprint.
         const after = new THREE.Box3().setFromObject(stage);
@@ -1688,6 +1721,9 @@ export default function Game() {
         sun.target.updateMatrixWorld();
         renderer.shadowMap.needsUpdate = true;
       }
+
+      // Baked map animations (train, props).
+      if (mapMixer) mapMixer.update(dt);
 
       const camDist = camDistCur;
       const camHeight = 5.5;
