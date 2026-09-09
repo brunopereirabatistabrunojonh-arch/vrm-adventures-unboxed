@@ -696,6 +696,8 @@ export default function Game() {
     const arenaBounds = { half: WORLD_SIZE / 2 };
     // Spawn resolved after the map loads (used by initial placement + respawn).
     const spawnPoint = new THREE.Vector3(0, 5, 0);
+    // Mixer for the map's own baked animations (train, props, etc).
+    let mapMixer: THREE.AnimationMixer | null = null;
 
     {
       // The GLB ships with embedded PBR textures — materials are used as-is.
