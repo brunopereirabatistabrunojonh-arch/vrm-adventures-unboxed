@@ -721,6 +721,23 @@ export default function Game() {
         stage.position.z -= center.z;
         stage.position.y -= bbox2.min.y; // floor of bbox sits on y=0 baseline
 
+        // Names of nodes driven by the map's baked animation clips — those
+        // must keep their matrices live (and stay out of the static BVH).
+        const animatedNames = new Set<string>();
+        for (const clip of gltf.animations ?? []) {
+          for (const track of clip.tracks) {
+            animatedNames.add(track.name.split(".")[0]);
+          }
+        }
+        const isAnimated = (o: THREE.Object3D) => {
+          let n: THREE.Object3D | null = o;
+          while (n) {
+            if (animatedNames.has(n.name)) return true;
+            n = n.parent === stage.parent ? null : n.parent;
+          }
+          return false;
+        };
+
         stage.traverse((obj) => {
           const m = obj as THREE.Mesh;
           if ((m as any).isMesh) {
