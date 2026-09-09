@@ -778,6 +778,17 @@ export default function Game() {
         scene.add(stage);
         stage.updateMatrixWorld(true);
 
+        // Play the map's baked animations (train, signs, props).
+        if (gltf.animations && gltf.animations.length) {
+          mapMixer = new THREE.AnimationMixer(stage);
+          for (const clip of gltf.animations) {
+            const action = mapMixer.clipAction(clip);
+            action.setLoop(THREE.LoopRepeat, Infinity);
+            action.play();
+          }
+        }
+
+
         // Update walk clamp to the visible map footprint.
         const after = new THREE.Box3().setFromObject(stage);
         const halfX = (after.max.x - after.min.x) / 2;
