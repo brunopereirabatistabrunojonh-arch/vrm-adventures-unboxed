@@ -109,7 +109,6 @@ const PLAYER_MAX_HP = 100;
 const ENEMY_MAX_HP = 40;
 const ATTACK_DAMAGE = 25;
 const ATTACK_RANGE = 5;
-...
 const MELEE_RANGE = 2.6;
 
 // ---- Procedural VRM animation ----
