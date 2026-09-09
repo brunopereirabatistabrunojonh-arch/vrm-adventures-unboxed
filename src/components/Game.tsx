@@ -761,10 +761,16 @@ export default function Game() {
 
             // Littlest Tokyo is static. Avoid rebuilding local transforms for
             // every prop on every frame while preserving authored transforms.
-            m.matrixAutoUpdate = false;
-            const geometryWithBvh = m.geometry as THREE.BufferGeometry & {
-              computeBoundsTree?: (options?: { targetLeafSize?: number }) => void;
-            };
+            const animatedMesh = isAnimated(m) || (m as any).isSkinnedMesh;
+            m.matrixAutoUpdate = animatedMesh;
+            if (!animatedMesh) {
+              const geometryWithBvh = m.geometry as THREE.BufferGeometry & {
+                computeBoundsTree?: (options?: { targetLeafSize?: number }) => void;
+              };
+              if (!geometryWithBvh.boundsTree) {
+                geometryWithBvh.computeBoundsTree?.({ targetLeafSize: 20 });
+              }
+            }
             if (!geometryWithBvh.boundsTree) {
               geometryWithBvh.computeBoundsTree?.({ targetLeafSize: 20 });
             }
