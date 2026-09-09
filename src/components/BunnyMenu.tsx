@@ -155,7 +155,7 @@ export default function BunnyMenu({ open, currentKills, onPlay }: Props) {
   if (!open) return null;
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col overflow-hidden">
+    <div className="absolute inset-0 z-30 flex flex-col overflow-y-auto overscroll-contain">
       {/* Backdrop */}
       <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/60 to-black/85 backdrop-blur-sm" />
 
@@ -171,7 +171,7 @@ export default function BunnyMenu({ open, currentKills, onPlay }: Props) {
         />
       )}
 
-      <div className="relative z-10 flex h-full flex-col items-center justify-start px-4 py-6 text-white">
+      <div className="relative z-10 flex min-h-full w-full flex-col items-center justify-start px-4 py-6 text-white [@media(max-height:560px)]:py-3">
         {screen === "main" && (
           <MainScreen
             best={best}
@@ -251,15 +251,15 @@ export default function BunnyMenu({ open, currentKills, onPlay }: Props) {
 
 function Title() {
   return (
-    <div className="mb-4 select-none text-center">
+    <div className="mb-4 select-none text-center [@media(max-height:560px)]:mb-2">
       <h1
-        className="text-5xl font-black tracking-wider text-white drop-shadow-[0_0_16px_rgba(236,72,153,0.9)] sm:text-6xl"
+        className="text-5xl font-black tracking-wider text-white drop-shadow-[0_0_16px_rgba(236,72,153,0.9)] sm:text-6xl [@media(max-height:560px)]:text-3xl"
         style={{ textShadow: "0 0 12px rgba(255,255,255,0.8), 0 0 30px rgba(236,72,153,0.7)" }}
       >
         BUNNY
       </h1>
       <h1
-        className="-mt-2 text-5xl font-black tracking-wider text-white drop-shadow-[0_0_16px_rgba(59,130,246,0.9)] sm:text-6xl"
+        className="-mt-2 text-5xl font-black tracking-wider text-white drop-shadow-[0_0_16px_rgba(59,130,246,0.9)] sm:text-6xl [@media(max-height:560px)]:-mt-1 [@media(max-height:560px)]:text-3xl"
         style={{ textShadow: "0 0 12px rgba(255,255,255,0.8), 0 0 30px rgba(59,130,246,0.7)" }}
       >
         ARENA
@@ -267,6 +267,7 @@ function Title() {
     </div>
   );
 }
+
 
 function NeonButton({
   color,
@@ -283,7 +284,7 @@ function NeonButton({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="pointer-events-auto w-full rounded-2xl border-2 bg-black/50 px-6 py-3 text-2xl font-black tracking-wider text-white transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+      className="pointer-events-auto w-full rounded-2xl border-2 bg-black/50 px-6 py-3 text-2xl font-black tracking-wider text-white transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 [@media(max-height:560px)]:py-1.5 [@media(max-height:560px)]:text-lg"
       style={{
         borderColor: color,
         boxShadow: `0 0 18px ${color}, inset 0 0 14px ${color}55`,
@@ -313,7 +314,8 @@ function MainScreen({
         <span>🪙 {coins}</span>
       </div>
       <Title />
-      <div className="mt-auto flex w-full flex-col gap-3 rounded-3xl border border-white/10 bg-black/40 p-4 backdrop-blur">
+      <div className="mt-auto flex w-full flex-col gap-3 rounded-3xl border border-white/10 bg-black/40 p-4 backdrop-blur [@media(max-height:560px)]:gap-2 [@media(max-height:560px)]:p-3">
+
         <NeonButton color="#ef4444" onClick={onPlay}>JOGAR</NeonButton>
         <NeonButton color="#eab308" onClick={() => onGo("shop")}>LOJA</NeonButton>
         <NeonButton color="#3b82f6" onClick={() => onGo("settings")}>CONFIGURAÇÕES</NeonButton>
