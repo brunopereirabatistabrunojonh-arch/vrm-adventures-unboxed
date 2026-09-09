@@ -771,9 +771,6 @@ export default function Game() {
                 geometryWithBvh.computeBoundsTree?.({ targetLeafSize: 20 });
               }
             }
-            if (!geometryWithBvh.boundsTree) {
-              geometryWithBvh.computeBoundsTree?.({ targetLeafSize: 20 });
-            }
             // Materials, textures and UVs are left exactly as authored.
           }
         });
